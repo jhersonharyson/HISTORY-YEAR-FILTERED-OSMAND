@@ -9,6 +9,7 @@ import java.util.Locale;
 import net.osmand.Algoritms;
 import net.osmand.FavouritePoint;
 import net.osmand.osm.LatLon;
+import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.FavouritesListActivity;
@@ -21,6 +22,7 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -28,11 +30,19 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Spinner;
 import android.widget.TabHost;
+import android.widget.TabHost.OnTabChangeListener;
 import android.widget.TabHost.TabSpec;
 import android.widget.TabWidget;
+import android.widget.TextView;
 
 
 public class SearchActivity extends TabActivity {
+	private static final String SEARCH_HISTORY = "Search_History";
+	private static final String SEARCH_FAVORITES = "Search_Favorites";
+	private static final String SEARCH_TRANSPORT = "Search_Transport";
+	private static final String SEARCH_LOCATION = "Search_Location";
+	private static final String SEARCH_ADDRESS = "Search_Address";
+	private static final String SEARCH_POI = "Search_POI";
 	public static final int POI_TAB_INDEX = 0;
 	public static final int ADDRESS_TAB_INDEX = 1;
 	public static final int LOCATION_TAB_INDEX = 2;
@@ -65,6 +75,7 @@ public class SearchActivity extends TabActivity {
 	private LocationListener locationListener = null;
 	private ArrayAdapter<String> spinnerAdapter;
 	private Spinner spinner;
+	private OsmandSettings settings;
 	
 	
 	public interface SearchActivityChild {
@@ -72,11 +83,12 @@ public class SearchActivity extends TabActivity {
 		public void locationUpdate(LatLon l);
 	}
 	
-	private View getTabIndicator(int imageId){
+	private View getTabIndicator(int imageId, int stringId){
 		View r = getLayoutInflater().inflate(R.layout.search_main_tab_header, getTabHost(), false);
 		ImageView tabImage = (ImageView)r.findViewById(R.id.TabImage);
 		tabImage.setImageResource(imageId);
 		tabImage.setBackgroundResource(R.drawable.tab_icon_background);
+		tabImage.setContentDescription(getString(stringId));
 		return r;
 	}
 	
@@ -84,8 +96,8 @@ public class SearchActivity extends TabActivity {
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		requestWindowFeature(Window.FEATURE_NO_TITLE); 
-		setTheme(R.style.NiceActivity);
 		setContentView(R.layout.search_main);
+		settings = ((OsmandApplication) getApplication()).getSettings();
 		
 		Button backButton = (Button) findViewById(R.id.search_back_button);
 		backButton.setOnClickListener(new View.OnClickListener() {
@@ -94,9 +106,10 @@ public class SearchActivity extends TabActivity {
 				SearchActivity.this.finish();
 			}
 		});
-		
+
+		final TextView tabinfo  = (TextView) findViewById(R.id.textViewADesc);
 		spinner = (Spinner) findViewById(R.id.SpinnerLocation);
-		spinnerAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, 
+		spinnerAdapter = new ArrayAdapter<String>(this, R.layout.my_spinner_text, 
 				new ArrayList<String>(Arrays.asList(new String[]{
 						getString(R.string.search_position_undefined),
 						getString(R.string.search_position_current_location),
@@ -104,27 +117,58 @@ public class SearchActivity extends TabActivity {
 						getString(R.string.search_position_favorites),
 						getString(R.string.search_position_address)
 					}))
-				);
+				) {
+			@Override
+			public View getDropDownView(int position, View convertView,
+					ViewGroup parent) {
+				View dropDownView = super.getDropDownView(position,
+						convertView, parent);
+				if (dropDownView instanceof TextView) {
+					((TextView) dropDownView).setTextColor(getResources()
+							.getColor(R.color.color_black));
+				}
+				return dropDownView;
+			}
+		};
+		spinnerAdapter.setDropDownViewResource(R.layout.my_spinner_text);
 		
 		
 		TabWidget tabs = (TabWidget) findViewById(android.R.id.tabs);
 		tabs.setBackgroundResource(R.drawable.tab_icon_background);
-		TabHost host = getTabHost(); 
-		host.addTab(host.newTabSpec("Search_POI").setIndicator(getTabIndicator(R.drawable.tab_search_poi_icon)).
+		TabHost host = getTabHost();
+		host.addTab(host.newTabSpec(SEARCH_POI).setIndicator(getTabIndicator(R.drawable.tab_search_poi_icon, R.string.poi)).
 				setContent(new Intent(this, SearchPoiFilterActivity.class))); //$NON-NLS-1$
 		
-		addressSpec = host.newTabSpec("Search_Address").
-				setIndicator(getTabIndicator(R.drawable.tab_search_address_icon));
+		addressSpec = host.newTabSpec(SEARCH_ADDRESS).
+                    setIndicator(getTabIndicator(R.drawable.tab_search_address_icon, R.string.address));
 		
 		setAddressSpecContent();
 
 		host.addTab(addressSpec);
-		host.addTab(host.newTabSpec("Search_Location").setIndicator(getTabIndicator(R.drawable.tab_search_location_icon)).setContent(createIntent(NavigatePointActivity.class))); //$NON-NLS-1$
-		TabSpec transportTab = host.newTabSpec("Search_Transport").setIndicator(getTabIndicator(R.drawable.tab_search_transport_icon)).setContent(createIntent(SearchTransportActivity.class));
+		host.addTab(host.newTabSpec(SEARCH_LOCATION).setIndicator(getTabIndicator(R.drawable.tab_search_location_icon, R.string.search_tabs_location)).setContent(createIntent(NavigatePointActivity.class))); //$NON-NLS-1$
+		TabSpec transportTab = host.newTabSpec(SEARCH_TRANSPORT).setIndicator(getTabIndicator(R.drawable.tab_search_transport_icon, R.string.transport)).setContent(createIntent(SearchTransportActivity.class));
 		host.addTab(transportTab); //$NON-NLS-1$
-		host.addTab(host.newTabSpec("Search_Favorites").setIndicator(getTabIndicator(R.drawable.tab_search_favorites_icon)).setContent(createIntent(FavouritesListActivity.class))); //$NON-NLS-1$
-		host.addTab(host.newTabSpec("Search_History").setIndicator(getTabIndicator(R.drawable.tab_search_history_icon)).setContent(createIntent(SearchHistoryActivity.class))); //$NON-NLS-1$
+		host.addTab(host.newTabSpec(SEARCH_FAVORITES).setIndicator(getTabIndicator(R.drawable.tab_search_favorites_icon, R.string.favorite)).setContent(createIntent(FavouritesListActivity.class))); //$NON-NLS-1$
+		host.addTab(host.newTabSpec(SEARCH_HISTORY).setIndicator(getTabIndicator(R.drawable.tab_search_history_icon, R.string.history)).setContent(createIntent(SearchHistoryActivity.class))); //$NON-NLS-1$
 		host.setCurrentTab(POI_TAB_INDEX);
+		host.setOnTabChangedListener(new OnTabChangeListener() {
+			@Override
+			public void onTabChanged(String tabId) {
+				if (SEARCH_POI.equals(tabId)) {
+					tabinfo.setText(R.string.poi_search_desc);
+				} else	if (SEARCH_ADDRESS.equals(tabId)) {
+					tabinfo.setText(R.string.address_search_desc);
+				} else	if (SEARCH_LOCATION.equals(tabId)) {
+					tabinfo.setText(R.string.navpoint_search_desc);
+				} else	if (SEARCH_TRANSPORT.equals(tabId)) {
+					tabinfo.setText(R.string.transport_search_desc);
+				} else	if (SEARCH_FAVORITES.equals(tabId)) {
+					tabinfo.setText(R.string.favourites_search_desc);
+				} else	if (SEARCH_HISTORY.equals(tabId)) {
+					tabinfo.setText(R.string.history_search_desc);
+				} 
+			}
+		});
 		
 		
 		spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -140,7 +184,6 @@ public class SearchActivity extends TabActivity {
 						searchAroundCurrentLocation = false;
 						endSearchCurrentLocation();
 						if (position == POSITION_LAST_MAP_VIEW) {
-							OsmandSettings settings = OsmandSettings.getOsmandSettings(SearchActivity.this);
 							updateSearchPoint(settings.getLastKnownMapLocation(), getString(R.string.search_position_fixed), true);
 						} else if (position == POSITION_FAVORITES) {
 							Intent intent = new Intent(SearchActivity.this, FavouritesListActivity.class);
@@ -251,7 +294,7 @@ public class SearchActivity extends TabActivity {
 		}
 		
 		if(searchPoint == null){
-			LatLon last = OsmandSettings.getOsmandSettings(this).getLastKnownMapLocation();
+			LatLon last = settings.getLastKnownMapLocation();
 			if(!Algoritms.objectEquals(reqSearchPoint, last)){
 				reqSearchPoint = last;
 				updateSearchPoint(last, getString(R.string.search_position_fixed), true);

@@ -14,15 +14,17 @@ import net.osmand.GPXUtilities.Track;
 import net.osmand.GPXUtilities.TrkSegment;
 import net.osmand.GPXUtilities.WptPt;
 import net.osmand.LogUtil;
+import net.osmand.osm.LatLon;
+import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.ResourceManager;
 
 import org.apache.commons.logging.Log;
 
-import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.location.Location;
 import android.text.format.DateFormat;
 
 public class SavingTrackHelper extends SQLiteOpenHelper {
@@ -45,17 +47,17 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	public final static String POINT_COL_DESCRIPTION = "description"; //$NON-NLS-1$
 	
 	public final static Log log = LogUtil.getLog(SavingTrackHelper.class);
-	
-	
-	
 
 	private String updateScript;
 	private String updatePointsScript;
 	
 	private long lastTimeUpdated = 0;
-	private final Context ctx;
+	private final OsmandApplication ctx;
+
+	private LatLon lastPoint;
+	private float distance = 0;
 	
-	public SavingTrackHelper(Context ctx){
+	public SavingTrackHelper(OsmandApplication ctx){
 		super(ctx, DATABASE_NAME, null, DATABASE_VERSION);
 		this.ctx = ctx;
 		updateScript = "INSERT INTO " + TRACK_NAME + 
@@ -102,17 +104,21 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	public boolean hasDataToSave() {
 		SQLiteDatabase db = getWritableDatabase();
 		if (db != null) {
-			Cursor q = db.query(false, TRACK_NAME, new String[0], null, null, null, null, null, null);
-			boolean has = q.moveToFirst();
-			q.close();
-			if (has) {
-				return true;
-			}
-			q = db.query(false, POINT_NAME, new String[0], null, null, null, null, null, null);
-			has = q.moveToFirst();
-			q.close();
-			if (has) {
-				return true;
+			try {
+				Cursor q = db.query(false, TRACK_NAME, new String[0], null, null, null, null, null, null);
+				boolean has = q.moveToFirst();
+				q.close();
+				if (has) {
+					return true;
+				}
+				q = db.query(false, POINT_NAME, new String[0], null, null, null, null, null, null);
+				has = q.moveToFirst();
+				q.close();
+				if (has) {
+					return true;
+				}
+			} finally {
+				db.close();
 			}
 		}
 
@@ -123,24 +129,21 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	 * @return warnings
 	 */
 	public List<String> saveDataToGpx() {
-		SQLiteDatabase db = getReadableDatabase();
 		List<String> warnings = new ArrayList<String>();
-		File dir = OsmandSettings.getOsmandSettings(ctx).getExternalStorageDirectory();
-		if (db != null && dir.canWrite()) {
+		File dir = ((OsmandApplication) ctx.getApplicationContext()).getSettings().getExternalStorageDirectory();
+		if (dir.canWrite()) {
 			dir = new File(dir, ResourceManager.GPX_PATH);
 			dir.mkdirs();
 			if (dir.exists()) {
 
-				Map<String, GPXFile> data = new LinkedHashMap<String, GPXFile>();
-				collectDBPoints(db, data);
-				collectDBTracks(db, data);
+				Map<String, GPXFile> data = collectRecordedData();
 
 				// save file
 				for (final String f : data.keySet()) {
-
 					File fout = new File(dir, f + ".gpx"); //$NON-NLS-1$
-					if (fout.exists() && !data.get(f).isEmpty()) {
-						String fileName = f + "_" + new SimpleDateFormat("HH-mm-ss_EEEE").format(new Date(data.get(f).findPointToShow().time)); //$NON-NLS-1$
+					if (!data.get(f).isEmpty()) {
+						WptPt pt = data.get(f).findPointToShow();
+						String fileName = f + "_" + new SimpleDateFormat("HH-mm_EEE").format(new Date(pt.time)); //$NON-NLS-1$						
 						fout = new File(dir, fileName + ".gpx"); //$NON-NLS-1$
 						int ind = 1;
 						while (fout.exists()) {
@@ -157,13 +160,35 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 			}
 		}
 
-		db = getWritableDatabase();
-		if (db != null && warnings.isEmpty()) {
-			// remove all from db
-			db.execSQL("DELETE FROM " + TRACK_NAME + " WHERE " + TRACK_COL_DATE + " <= ?", new Object[] { System.currentTimeMillis() }); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-			db.execSQL("DELETE FROM " + POINT_NAME + " WHERE " + POINT_COL_DATE + " <= ?", new Object[] { System.currentTimeMillis() }); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		SQLiteDatabase db = getWritableDatabase();
+		if (db != null && warnings.isEmpty() && db.isOpen()) {
+			try {
+				// remove all from db
+				db.execSQL("DELETE FROM " + TRACK_NAME + " WHERE " + TRACK_COL_DATE + " <= ?", new Object[] { System.currentTimeMillis() }); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+				db.execSQL("DELETE FROM " + POINT_NAME + " WHERE " + POINT_COL_DATE + " <= ?", new Object[] { System.currentTimeMillis() }); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+				// delete all
+				//			db.execSQL("DELETE FROM " + TRACK_NAME + " WHERE 1 = 1", new Object[] { }); //$NON-NLS-1$ //$NON-NLS-2$
+				//			db.execSQL("DELETE FROM " + POINT_NAME + " WHERE 1 = 1", new Object[] { }); //$NON-NLS-1$ //$NON-NLS-2$
+			} finally {
+				db.close();
+			}
 		}
+		distance = 0;
 		return warnings;
+	}
+
+	public Map<String, GPXFile> collectRecordedData() {
+		Map<String, GPXFile> data = new LinkedHashMap<String, GPXFile>();
+		SQLiteDatabase db = getReadableDatabase();
+		if (db != null && db.isOpen()) {
+			try {
+				collectDBPoints(db, data);
+				collectDBTracks(db, data);
+			} finally {
+				db.close();
+			}
+		}
+		return data;
 	}
 
 	private void collectDBPoints(SQLiteDatabase db, Map<String, GPXFile> dataTracks) {
@@ -211,21 +236,26 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 				long time = query.getLong(5);
 				pt.time = time;
 				long currentInterval = Math.abs(time - previousTime);
+				boolean newInterval = pt.lat == 0 && pt.lon == 0;
 				
-				if (track != null && (currentInterval < 6 * 60 * 1000 || currentInterval < 10 * previousInterval)) {
+				if (track != null && !newInterval && (currentInterval < 6 * 60 * 1000 || currentInterval < 10 * previousInterval)) {
 					// 6 minute - same segment
 					segment.points.add(pt);
 				} else if (track != null && currentInterval < 2 * 60 * 60 * 1000) {
 					// 2 hour - same track
 					segment = new TrkSegment();
-					segment.points.add(pt);
+					if(!newInterval) {
+						segment.points.add(pt);
+					}
 					track.segments.add(segment);
 				} else {
 					// check if date the same - new track otherwise new file  
 					track = new Track();
 					segment = new TrkSegment();
 					track.segments.add(segment);
-					segment.points.add(pt);
+					if(!newInterval) {
+						segment.points.add(pt);
+					}
 					String date = DateFormat.format("yyyy-MM-dd", time).toString(); //$NON-NLS-1$
 					if (dataTracks.containsKey(date)) {
 						GPXFile gpx = dataTracks.get(date);
@@ -243,10 +273,48 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		query.close();
 	}
 	
+	public void startNewSegment() {
+		lastTimeUpdated = 0;
+		lastPoint = null;
+		execWithClose(updateScript, new Object[] { 0, 0, 0, 0, 0, System.currentTimeMillis()});
+		addTrackPoint(null, true);
+	}
+	
 	public void insertData(double lat, double lon, double alt, double speed, double hdop, long time, OsmandSettings settings){
-		if (time - lastTimeUpdated > settings.SAVE_TRACK_INTERVAL.get()*1000) {
+		//* 1000 in next line seems to be wrong with new IntervalChooseDialog
+		//if (time - lastTimeUpdated > settings.SAVE_TRACK_INTERVAL.get() * 1000) {
+		if (time - lastTimeUpdated > settings.SAVE_TRACK_INTERVAL.get()) {
 			execWithClose(updateScript, new Object[] { lat, lon, alt, speed, hdop, time });
+			boolean newSegment = false;
+			if (lastPoint == null || (time - lastTimeUpdated) > 180 * 1000) {
+				lastPoint = new LatLon(lat, lon);
+				newSegment = true;
+			} else {
+				float[] lastInterval = new float[1];
+				Location.distanceBetween(lat, lon, lastPoint.getLatitude(), lastPoint.getLongitude(), lastInterval);
+				distance += lastInterval[0];
+				lastPoint = new LatLon(lat, lon);
+			}
 			lastTimeUpdated = time;
+			if (settings.SHOW_CURRENT_GPX_TRACK.get()) {
+				WptPt pt = new GPXUtilities.WptPt(lat, lon, time,
+						alt, speed, hdop);
+				addTrackPoint(pt, newSegment);
+			}
+		}
+	}
+	
+	private void addTrackPoint(WptPt pt, boolean newSegment) {
+		GPXFile file = ctx.getGpxFileToDisplay();
+		if (file != null && ctx.getSettings().SHOW_CURRENT_GPX_TRACK.get()) {
+			List<List<WptPt>> points = file.processedPointsToDisplay;
+			if (points.size() == 0 || newSegment) {
+				points.add(new ArrayList<WptPt>());
+			}
+			if (pt != null) {
+				List<WptPt> last = points.get(points.size() - 1);
+				last.add(pt);
+			}
 		}
 	}
 	
@@ -266,4 +334,13 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 			}
 		}
 	}
+	
+	public float getDistance() {
+		return distance;
+	}
+	
+	public long getLastTimeUpdated() {
+		return lastTimeUpdated;
+	}
+
 }

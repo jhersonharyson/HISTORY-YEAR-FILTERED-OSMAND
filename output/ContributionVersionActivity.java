@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import net.osmand.plus.OsmandSettings;
+import net.osmand.access.AccessibleToast;
 import net.osmand.plus.R;
 import net.osmand.plus.ResourceManager;
 
@@ -20,26 +20,23 @@ import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
 import android.app.AlertDialog;
-import android.app.ListActivity;
-import android.app.ProgressDialog;
 import android.app.AlertDialog.Builder;
+import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.Filterable;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-public class ContributionVersionActivity extends ListActivity {
+public class ContributionVersionActivity extends OsmandListActivity {
 
 	private static ContributionVersionActivityThread thread = new ContributionVersionActivityThread();
 	private static final int DOWNLOAD_BUILDS_LIST = 1;
@@ -51,20 +48,22 @@ public class ContributionVersionActivity extends ListActivity {
 	
 	private ProgressDialog progressDlg;
 	private Date currentInstalledDate;
-	
+
 	private List<OsmAndBuild> downloadedBuilds = new ArrayList<OsmAndBuild>();
 	private SimpleDateFormat dateFormat = new SimpleDateFormat("dd.MM.yyyy");
-	private File pathToDownload = new File(Environment.getExternalStorageDirectory(), ResourceManager.APP_DIR + "osmandToInstall.apk");
+	private File pathToDownload;
 	private OsmAndBuild currentSelectedBuild = null;
 	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 
-		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		pathToDownload = getMyApplication().getSettings().extendOsmandPath(ResourceManager.APP_DIR + "osmandToInstall.apk");
+		CustomTitleBar titleBar = new CustomTitleBar(this, R.string.download_files, R.drawable.tab_download_screen_icon);
 		setContentView(R.layout.download_builds);
+		titleBar.afterSetContentView();
 		
-		String installDate = OsmandSettings.getOsmandSettings(this).CONTRIBUTION_INSTALL_APP_DATE.get();
+		String installDate = getMyApplication().getSettings().CONTRIBUTION_INSTALL_APP_DATE.get();
 		if(installDate != null){
 			try {
 				currentInstalledDate = dateFormat.parse(installDate);
@@ -107,7 +106,7 @@ public class ContributionVersionActivity extends ListActivity {
 		}
 		if(operationId == DOWNLOAD_BUILDS_LIST){
 			if(e != null){
-				Toast.makeText(this, getString(R.string.loading_builds_failed) + " : " + e.getMessage(), Toast.LENGTH_LONG).show();
+				AccessibleToast.makeText(this, getString(R.string.loading_builds_failed) + " : " + e.getMessage(), Toast.LENGTH_LONG).show();
 				finish();
 			} else {
 				setListAdapter(new OsmandBuildsAdapter(downloadedBuilds));
@@ -132,12 +131,12 @@ public class ContributionVersionActivity extends ListActivity {
 
 	private void updateInstalledApp(boolean showMessage, Date d) {
 		if (showMessage) {
-			Toast.makeText(
+			AccessibleToast.makeText(
 					this,
 					MessageFormat.format(getString(R.string.build_installed), currentSelectedBuild.tag, dateFormat
 							.format(currentSelectedBuild.date)), Toast.LENGTH_LONG).show();
 		}
-		OsmandSettings.getOsmandSettings(this).CONTRIBUTION_INSTALL_APP_DATE.set(dateFormat.format(d));
+		getMyApplication().getSettings().CONTRIBUTION_INSTALL_APP_DATE.set(dateFormat.format(d));
 	}
 	
 	protected void executeThreadOperation(int operationId) throws Exception {
@@ -256,9 +255,9 @@ public class ContributionVersionActivity extends ListActivity {
 
 			if(currentInstalledDate != null){
 				if(currentInstalledDate.before(build.date)){
-					tagView.setTextColor(Color.GREEN);
+					tagView.setTextColor(getResources().getColor(R.color.color_orange));
 				} else {
-					tagView.setTextColor(Color.BLUE);
+					tagView.setTextColor(Color.WHITE);
 				}
 			} else {
 				tagView.setTextColor(Color.WHITE);
