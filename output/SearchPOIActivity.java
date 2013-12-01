@@ -17,28 +17,31 @@ import java.util.Map.Entry;
 
 import net.londatiga.android.ActionItem;
 import net.londatiga.android.QuickAction;
-import net.osmand.Algoritms;
-import net.osmand.LogUtil;
-import net.osmand.OsmAndFormatter;
 import net.osmand.ResultMatcher;
 import net.osmand.access.AccessibleToast;
 import net.osmand.access.NavigationInfo;
 import net.osmand.data.Amenity;
 import net.osmand.data.AmenityType;
-import net.osmand.osm.LatLon;
-import net.osmand.osm.OpeningHoursParser;
-import net.osmand.osm.OpeningHoursParser.OpeningHours;
+import net.osmand.data.LatLon;
+import net.osmand.osm.MapRenderingTypes;
 import net.osmand.plus.NameFinderPoiFilter;
+import net.osmand.plus.OsmAndFormatter;
+import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
+import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
+import net.osmand.plus.OsmAndConstants;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.PoiFilter;
 import net.osmand.plus.R;
 import net.osmand.plus.SearchByNameFilter;
-import net.osmand.plus.activities.CustomTitleBar;
 import net.osmand.plus.activities.EditPOIFilterActivity;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.MapActivityActions;
 import net.osmand.plus.activities.OsmandListActivity;
+import net.osmand.plus.render.RenderingIcons;
+import net.osmand.util.Algorithms;
+import net.osmand.util.OpeningHoursParser;
+import net.osmand.util.OpeningHoursParser.OpeningHours;
 import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
 import android.content.Context;
@@ -51,72 +54,66 @@ import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.Path;
 import android.graphics.drawable.Drawable;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
-import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
-import android.location.LocationProvider;
 import android.os.AsyncTask;
 import android.os.AsyncTask.Status;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.text.Editable;
 import android.text.Spannable;
+import android.text.SpannableString;
 import android.text.TextWatcher;
+import android.text.method.LinkMovementMethod;
 import android.text.style.ForegroundColorSpan;
+import android.text.util.Linkify;
 import android.util.DisplayMetrics;
-import android.util.Log;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.ViewGroup.LayoutParams;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Filter;
-import android.widget.ImageButton;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.actionbarsherlock.internal.ResourcesCompat;
+import com.actionbarsherlock.view.Menu;
+import com.actionbarsherlock.view.MenuItem;
+import com.actionbarsherlock.view.MenuItem.OnMenuItemClickListener;
+import com.actionbarsherlock.view.Window;
+
 /**
  * Search poi activity
  */
-public class SearchPOIActivity extends OsmandListActivity implements SensorEventListener {
+public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompassListener, OsmAndLocationListener {
 
+	private static final int COMPASS_REFRESH_MSG_ID = OsmAndConstants.UI_HANDLER_SEARCH + 3;
 	public static final String AMENITY_FILTER = "net.osmand.amenity_filter"; //$NON-NLS-1$
 	public static final String SEARCH_LAT = SearchActivity.SEARCH_LAT; //$NON-NLS-1$
 	public static final String SEARCH_LON = SearchActivity.SEARCH_LON; //$NON-NLS-1$
-	private static final int GPS_TIMEOUT_REQUEST = 1000;
-	private static final int GPS_DIST_REQUEST = 5;
-	private static final int MIN_DISTANCE_TO_RESEARCH = 70;
-	private static final int MIN_DISTANCE_TO_UPDATE = 6;
+	private static final float MIN_DISTANCE_TO_RESEARCH = 20;
+	private static final float MIN_DISTANCE_TO_REFRESH = 5;
+	private static final int SEARCH_MORE = 0;
+	private static final int SHOW_ON_MAP = 1;
+	private static final int FILTER = 2;
 
-	private NavigationInfo navigationInfo;
-
-
-	private Button searchPOILevel;
-	private ImageButton showOnMap;
-	private ImageButton showFilter;
 	private PoiFilter filter;
 	private AmenityAdapter amenityAdapter;
-	private TextView searchArea;
 	private EditText searchFilter;
 	private View searchFilterLayout;
 	
 	private boolean searchNearBy = false;
-	private Location location = null; 
+	private net.osmand.Location location = null; 
 	private Float heading = null;
 	
-	private String currentLocationProvider = null;
-	private boolean sensorRegistered = false;
 	private Handler uiHandler;
 	private OsmandSettings settings;
 	private Path directionPath = new Path();
@@ -125,57 +122,33 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 	
 	// never null represents current running task or last finished
 	private SearchAmenityTask currentSearchTask = new SearchAmenityTask(null);
-	private CustomTitleBar titleBar; 
-
+	private OsmandApplication app;
+	private MenuItem showFilterItem;
+	private MenuItem showOnMapItem;
+	private MenuItem searchPOILevel;
+	private Button searchFooterButton;
 	
 	@Override
-	public void onCreate(Bundle icicle) {
-		super.onCreate(icicle);
-		navigationInfo = new NavigationInfo(this);
-		titleBar = new CustomTitleBar(this, R.string.searchpoi_activity, R.drawable.tab_search_poi_icon);
-		setContentView(R.layout.searchpoi);
-		titleBar.afterSetContentView();
-		
-		uiHandler = new Handler();
-		searchPOILevel = (Button) findViewById(R.id.SearchPOILevelButton);
-		searchArea = (TextView) findViewById(R.id.SearchAreaText);
-		searchFilter = (EditText) findViewById(R.id.SearchFilter);
-		searchFilterLayout = findViewById(R.id.SearchFilterLayout);
-		showOnMap = (ImageButton) findViewById(R.id.ShowOnMap);
-		showFilter = (ImageButton) findViewById(R.id.ShowFilter);
-		directionPath = createDirectionPath();
-		
-		settings = ((OsmandApplication) getApplication()).getSettings();
-		
-		searchPOILevel.setOnClickListener(new OnClickListener() {
+	public boolean onCreateOptionsMenu(Menu menu) {
+		boolean light = getMyApplication().getSettings().isLightActionBar();
+		searchPOILevel = menu.add(0, SEARCH_MORE, 0, R.string.search_POI_level_btn).setShowAsActionFlags(
+				MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+		searchPOILevel.setOnMenuItemClickListener(new OnMenuItemClickListener() {
 			@Override
-			public void onClick(View v) {
-				String query = searchFilter.getText().toString();
-				if (query.length() < 2 && (isNameFinderFilter() || isSearchByNameFilter())) {
-					AccessibleToast.makeText(SearchPOIActivity.this, R.string.poi_namefinder_query_empty, Toast.LENGTH_LONG).show();
-					return;
-				}
-				if(isNameFinderFilter() && 
-						!Algoritms.objectEquals(((NameFinderPoiFilter) filter).getQuery(), query)){
-					filter.clearPreviousZoom();
-					((NameFinderPoiFilter) filter).setQuery(query);
-					runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.NEW_SEARCH_INIT));
-				} else if(isSearchByNameFilter() && 
-						!Algoritms.objectEquals(((SearchByNameFilter) filter).getQuery(), query)){
-					showFilter.setVisibility(View.INVISIBLE);
-					filter.clearPreviousZoom();
-					showPoiCategoriesByNameFilter(query, location);
-					((SearchByNameFilter) filter).setQuery(query);
-					runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.NEW_SEARCH_INIT));
-				} else {
-					runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.SEARCH_FURTHER));
-				}
+			public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
+
+				return searchMore();
 			}
+
 		});
+		updateSearchPoiTextButton(false);
 		
-		showFilter.setOnClickListener(new OnClickListener() {
+		showFilterItem = menu.add(0, FILTER, 0, R.string.search_poi_filter).setShowAsActionFlags(
+				MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+		showFilterItem = showFilterItem.setIcon(light ? R.drawable.ic_action_filter_light: R.drawable.ic_action_filter_dark);
+		showFilterItem.setOnMenuItemClickListener(new OnMenuItemClickListener() {
 			@Override
-			public void onClick(View v) {
+			public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
 				if(isSearchByNameFilter()){
 					Intent newIntent = new Intent(SearchPOIActivity.this, EditPOIFilterActivity.class);
 					newIntent.putExtra(EditPOIFilterActivity.AMENITY_FILTER, PoiFilter.CUSTOM_FILTER_ID);
@@ -192,8 +165,78 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 						searchFilterLayout.setVisibility(View.GONE);
 					}
 				}
+				return true;
 			}
 		});
+		updateShowFilterItem();
+		if(isSearchByNameFilter() || isNameFinderFilter()) {
+			showFilterItem.setVisible(false);
+		}
+		
+
+		showOnMapItem = menu.add(0, SHOW_ON_MAP, 0, R.string.search_shown_on_map).setShowAsActionFlags(
+				MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+		showOnMapItem = showOnMapItem.setIcon(light ? R.drawable.ic_action_map_marker_light : R.drawable.ic_action_map_marker_dark);
+		showOnMapItem.setOnMenuItemClickListener(new OnMenuItemClickListener() {
+			@Override
+			public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
+				if (searchFilter.getVisibility() == View.VISIBLE) {
+					filter.setNameFilter(searchFilter.getText().toString());
+				}
+				settings.setPoiFilterForMap(filter.getFilterId());
+				settings.SHOW_POI_OVER_MAP.set(true);
+				if (location != null) {
+					settings.setMapLocationToShow(location.getLatitude(), location.getLongitude(), 15);
+				}
+				MapActivity.launchMapActivityMoveToTop(SearchPOIActivity.this);
+				return true;
+
+			}
+		});
+		return true;
+	}
+	
+	private boolean searchMore() {
+		String query = searchFilter.getText().toString().trim();
+		if (query.length() < 2 && (isNameFinderFilter() || isSearchByNameFilter())) {
+			AccessibleToast.makeText(SearchPOIActivity.this, R.string.poi_namefinder_query_empty, Toast.LENGTH_LONG).show();
+			return true;
+		}
+		if (isNameFinderFilter() && !Algorithms.objectEquals(((NameFinderPoiFilter) filter).getQuery(), query)) {
+			filter.clearPreviousZoom();
+			((NameFinderPoiFilter) filter).setQuery(query);
+			runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.NEW_SEARCH_INIT));
+		} else if (isSearchByNameFilter() && !Algorithms.objectEquals(((SearchByNameFilter) filter).getQuery(), query)) {
+			showFilterItem.setVisible(false);
+			filter.clearPreviousZoom();
+			showPoiCategoriesByNameFilter(query, location);
+			((SearchByNameFilter) filter).setQuery(query);
+			runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.NEW_SEARCH_INIT));
+		} else {
+			runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.SEARCH_FURTHER));
+		}
+		return true;
+	}
+
+	
+	@Override
+	public void onCreate(Bundle icicle) {
+		requestWindowFeature(Window.FEATURE_INDETERMINATE_PROGRESS);
+		super.onCreate(icicle);
+		setContentView(R.layout.searchpoi);
+		
+		getSupportActionBar().setTitle(R.string.searchpoi_activity);
+		getSupportActionBar().setIcon(R.drawable.tab_search_poi_icon);
+		getSherlock().setProgressBarIndeterminateVisibility(false);
+		
+		app = (OsmandApplication)getApplication();
+		
+		uiHandler = new Handler();
+		searchFilter = (EditText) findViewById(R.id.SearchFilter);
+		searchFilterLayout = findViewById(R.id.SearchFilterLayout);
+		directionPath = createDirectionPath();
+		
+		settings = ((OsmandApplication) getApplication()).getSettings();
 		
 		searchFilter.addTextChangedListener(new TextWatcher(){
 			@Override
@@ -201,8 +244,12 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 				if(!isNameFinderFilter() && !isSearchByNameFilter()){
 					amenityAdapter.getFilter().filter(s);
 				} else {
-					searchPOILevel.setEnabled(true);
-					searchPOILevel.setText(R.string.search_button);
+					if(searchPOILevel != null)  {
+						searchPOILevel.setEnabled(true);
+						searchPOILevel.setTitle(R.string.search_button);
+					}
+					searchFooterButton.setEnabled(true);
+					searchFooterButton.setText(R.string.search_button);
 					// Cancel current search request here?
 				}
 			}
@@ -214,24 +261,30 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			public void onTextChanged(CharSequence s, int start, int before, int count) {
 			}
 		});
-		
-		showOnMap.setOnClickListener(new OnClickListener() {
-			@Override
-			public void onClick(View v) {
-				if(searchFilter.getVisibility() == View.VISIBLE) {
-					filter.setNameFilter(searchFilter.getText().toString());
-				}
-				settings.setPoiFilterForMap(filter.getFilterId());
-				settings.SHOW_POI_OVER_MAP.set(true);
-				if(location != null){
-					settings.setMapLocationToShow(location.getLatitude(), location.getLongitude(), 15);
-				}
-				MapActivity.launchMapActivityMoveToTop(SearchPOIActivity.this);
-			}
-		});
+		addFooterView();
 		amenityAdapter = new AmenityAdapter(new ArrayList<Amenity>());
 		setListAdapter(amenityAdapter);
 		
+		
+		
+	}
+
+	private void addFooterView() {
+		final FrameLayout ll = new FrameLayout(this);
+		android.widget.FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
+		lp.gravity = Gravity.CENTER_HORIZONTAL;
+		searchFooterButton = new Button(this);
+		searchFooterButton.setText(R.string.search_POI_level_btn);
+		searchFooterButton.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				searchMore();
+			}
+		});
+		searchFooterButton.setLayoutParams(lp);
+		ll.addView(searchFooterButton);
+		
+		getListView().addFooterView(ll);
 	}
 	
 	private Path createDirectionPath() {
@@ -266,7 +319,7 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		super.onResume();
 		Bundle bundle = this.getIntent().getExtras();
 		if(bundle.containsKey(SEARCH_LAT) && bundle.containsKey(SEARCH_LON)){
-			location = new Location("internal"); //$NON-NLS-1$
+			location = new net.osmand.Location("internal"); //$NON-NLS-1$
 			location.setLatitude(bundle.getDouble(SEARCH_LAT));
 			location.setLongitude(bundle.getDouble(SEARCH_LON));
 			searchNearBy = false;
@@ -275,17 +328,15 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			searchNearBy = true;
 		}
 		
+		
 		String filterId = bundle.getString(AMENITY_FILTER);
-		PoiFilter filter = ((OsmandApplication)getApplication()).getPoiFilters().getFilterById(filterId);
+		PoiFilter filter = app.getPoiFilters().getFilterById(filterId);
 		if (filter != this.filter) {
 			this.filter = filter;
 			if (filter != null) {
-				titleBar.getTitleView().setText(getString(R.string.searchpoi_activity) + " - " + filter.getName());
 				filter.clearPreviousZoom();
 			} else {
 				amenityAdapter.setNewModel(Collections.<Amenity> emptyList(), "");
-				searchPOILevel.setText(R.string.search_POI_level_btn);
-				searchPOILevel.setEnabled(false);
 			}
 			// run query again
 			clearSearchQuery();
@@ -294,45 +345,48 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			filter.clearNameFilter();
 		}
 		
+	
+		updateSubtitle();
+		updateSearchPoiTextButton(false);
+		updateShowFilterItem();
+		if (filter != null) {
+			if (searchNearBy) {
+				app.getLocationProvider().addLocationListener(this);
+				location = app.getLocationProvider().getLastKnownLocation();
+				app.getLocationProvider().resumeAllUpdates();
+			}
+			updateLocation(location);
+		}
 		if(isNameFinderFilter()){
-			showFilter.setVisibility(View.GONE);
 			searchFilterLayout.setVisibility(View.VISIBLE);
 		} else if(isSearchByNameFilter() ){
-			showFilter.setVisibility(View.INVISIBLE);
 			searchFilterLayout.setVisibility(View.VISIBLE);
-		} else {
-			showFilter.setVisibility(View.VISIBLE);
-			showOnMap.setEnabled(filter != null);
 		}
-		showOnMap.setVisibility(View.VISIBLE);
-		
-		if (filter != null) {
-			searchArea.setText(filter.getSearchArea());
-			updateSearchPoiTextButton();
-			
-			setLocation(location);
-			if (searchNearBy) {
-				LocationManager service = (LocationManager) getSystemService(LOCATION_SERVICE);
-				service.requestLocationUpdates(LocationManager.GPS_PROVIDER, GPS_TIMEOUT_REQUEST, GPS_DIST_REQUEST, gpsListener);
-				currentLocationProvider = LocationManager.GPS_PROVIDER;
-				if (!isRunningOnEmulator()) {
-					// try to always ask for network provide it is faster way to find location
-					service.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, GPS_TIMEOUT_REQUEST, GPS_DIST_REQUEST,
-									networkListener);
-					currentLocationProvider = LocationManager.NETWORK_PROVIDER;
-				}
-			}
+		app.getLocationProvider().addCompassListener(this);
+		app.getLocationProvider().registerOrUnregisterCompassListener(true);
+	}
+
+
+	private void updateShowFilterItem() {
+		if(showFilterItem != null) {
+			showFilterItem.setVisible(filter != null);
+		}
+	}
+
+	private void updateSubtitle() {
+		if(filter != null) {
+			getSupportActionBar().setSubtitle(filter.getName() + " " + filter.getSearchArea());
 		}
 	}
 	
-	private void showPoiCategoriesByNameFilter(String query, Location loc){
+	private void showPoiCategoriesByNameFilter(String query, net.osmand.Location loc){
 		OsmandApplication app = (OsmandApplication) getApplication();
 		if(loc != null){
 			Map<AmenityType, List<String>> map = app.getResourceManager().searchAmenityCategoriesByName(query, loc.getLatitude(), loc.getLongitude());
 			if(!map.isEmpty()){
 				PoiFilter filter = ((OsmandApplication)getApplication()).getPoiFilters().getFilterById(PoiFilter.CUSTOM_FILTER_ID);
 				if(filter != null){
-					showFilter.setVisibility(View.VISIBLE);
+					showFilterItem.setVisible(true);
 					filter.setMapToAccept(map);
 				}
 				
@@ -348,7 +402,7 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		Iterator<Entry<AmenityType, List<String>>> iterator = map.entrySet().iterator();
 		while(iterator.hasNext() && count < 4){
 			Entry<AmenityType, List<String>> e = iterator.next();
-			b.append("\n").append(OsmAndFormatter.toPublicString(e.getKey(), this)).append(" - ");
+			b.append("\n").append(OsmAndFormatter.toPublicString(e.getKey(), getMyApplication())).append(" - ");
 			if(e.getValue() == null){
 				b.append("...");
 			} else {
@@ -366,53 +420,35 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		return b.toString();
 	}
 
-	private void updateSearchPoiTextButton(){
-		if(location == null){
-			searchPOILevel.setText(R.string.search_poi_location);
-			searchPOILevel.setEnabled(false);
-		} else if (!isNameFinderFilter() && !isSearchByNameFilter()) {
-			searchPOILevel.setText(R.string.search_POI_level_btn);
-			searchPOILevel.setEnabled(currentSearchTask.getStatus() != Status.RUNNING &&
-					filter.isSearchFurtherAvailable());
+	private void updateSearchPoiTextButton(boolean taskAlreadyFinished) {
+		boolean enabled = false;
+		int title = R.string.search_POI_level_btn;
+
+		if (location == null) {
+			title = R.string.search_poi_location;
+			enabled = false;
+		} else if (filter != null && !isNameFinderFilter() && !isSearchByNameFilter()) {
+			title = R.string.search_POI_level_btn;
+			enabled = (taskAlreadyFinished || currentSearchTask.getStatus() != Status.RUNNING) && filter.isSearchFurtherAvailable();
+		} else if (filter != null) {
+			title = R.string.search_button;
+			enabled = (taskAlreadyFinished || currentSearchTask.getStatus() != Status.RUNNING) && filter.isSearchFurtherAvailable();
+		}
+		if (searchPOILevel != null) {
+			searchPOILevel.setEnabled(enabled);
+			searchPOILevel.setTitle(title);
+		}
+		if(ResourcesCompat.getResources_getBoolean(this, R.bool.abs__split_action_bar_is_narrow)) {
+			searchFooterButton.setVisibility(View.GONE);
 		} else {
-			searchPOILevel.setText(R.string.search_button);
-			searchPOILevel.setEnabled(currentSearchTask.getStatus() != Status.RUNNING && 
-					filter.isSearchFurtherAvailable());
+			searchFooterButton.setVisibility(View.VISIBLE);
+			searchFooterButton.setEnabled(enabled);
+			searchFooterButton.setText(title);
 		}
 	}
 	
-	public void setLocation(Location l){
-		registerUnregisterSensor(l);
-		navigationInfo.setLocation(l);
-		boolean handled = false;
-		if (l != null && filter != null) {
-			Location searchedLocation = getSearchedLocation();
-			if (searchedLocation == null) {
-  				searchedLocation = l;
-				if (!isNameFinderFilter() && !isSearchByNameFilter()) {
-					runNewSearchQuery(SearchAmenityRequest.buildRequest(l, SearchAmenityRequest.NEW_SEARCH_INIT));
-				}
-				handled = true;
-			} else if (l.distanceTo(searchedLocation) > MIN_DISTANCE_TO_RESEARCH) {
-				runNewSearchQuery(SearchAmenityRequest.buildRequest(l, SearchAmenityRequest.SEARCH_AGAIN));
-				handled = true;
-			} else if(location == null || location.distanceTo(l) > MIN_DISTANCE_TO_UPDATE){
-				handled = true;
-			}
-		} else {
-			if(location != null){
-				handled = true;
-			}
-		}
-		if(handled) {
-			location = l;
-			updateSearchPoiTextButton();
-			amenityAdapter.notifyDataSetInvalidated();
-		}
-		
-	}
 	
-	private Location getSearchedLocation(){
+	private net.osmand.Location getSearchedLocation(){
 		return currentSearchTask.getSearchedLocation();
 	}
 	
@@ -432,13 +468,6 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 	}
 	
 	
-	private boolean isRunningOnEmulator(){
-		if (Build.DEVICE.equals("generic")) { //$NON-NLS-1$ 
-			return true;
-		}  
-		return false;
-	}
-	
 	public boolean isNameFinderFilter(){
 		return filter instanceof NameFinderPoiFilter; 
 	}
@@ -449,67 +478,67 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 	
 
 	@Override
-	public void onSensorChanged(SensorEvent event) {
-		// Attention : sensor produces a lot of events & can hang the system
-		if(heading != null && Math.abs(heading - event.values[0]) < 4){
-			// this is very small variation
-			return;
+	public void updateLocation(net.osmand.Location location) {
+		boolean handled = false;
+		if (location != null && filter != null) {
+			net.osmand.Location searchedLocation = getSearchedLocation();
+			if (searchedLocation == null) {
+  				searchedLocation = location;
+				if (!isNameFinderFilter() && !isSearchByNameFilter()) {
+					runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.NEW_SEARCH_INIT));
+				}
+				handled = true;
+			} else if (location.distanceTo(searchedLocation) > MIN_DISTANCE_TO_RESEARCH) {
+				searchedLocation = location;
+				runNewSearchQuery(SearchAmenityRequest.buildRequest(location, SearchAmenityRequest.SEARCH_AGAIN));
+				handled = true;
+			} else if (location.distanceTo(searchedLocation) > MIN_DISTANCE_TO_REFRESH){
+				handled = true;
+			}
+		} else {
+			if(location != null){
+				handled = true;
+			}
 		}
-		heading = event.values[0];
+		if (handled) {
+			this.location = location;
+			updateSearchPoiTextButton(false);
+			// Get the top position from the first visible element
+			int idx = getListView().getFirstVisiblePosition();
+			View vfirst = getListView().getChildAt(0);
+			int pos = 0;
+			if (vfirst != null)
+				pos = vfirst.getTop();
+			amenityAdapter.notifyDataSetInvalidated();
+			// Restore the position
+			getListView().setSelectionFromTop(idx, pos);
+		}	
 		
-		if(!uiHandler.hasMessages(5)){
+	}
+
+	@Override
+	public void updateCompassValue(float value) {
+		heading = value;
+		if(!uiHandler.hasMessages(COMPASS_REFRESH_MSG_ID)){
 			Message msg = Message.obtain(uiHandler, new Runnable(){
 				@Override
 				public void run() {
 					amenityAdapter.notifyDataSetChanged();
 				}
 			});
-			msg.what = 5;
+			msg.what = COMPASS_REFRESH_MSG_ID;
 			uiHandler.sendMessageDelayed(msg, 100);
 		}
-		
 	}
-	@Override
-	public void onAccuracyChanged(Sensor sensor, int accuracy) {
-	}
-
 	
-	
-	
-	private void registerUnregisterSensor(Location location){
-    	// show point view only if gps enabled
-    	if(location == null){
-    		if(sensorRegistered) {
-    			Log.d(LogUtil.TAG, "Disable sensor"); //$NON-NLS-1$
-    			((SensorManager) getSystemService(SENSOR_SERVICE)).unregisterListener(this);
-    			sensorRegistered = false;
-    			heading = null;
-    		}
-    	} else {
-    		if(!sensorRegistered){
-    			Log.d(LogUtil.TAG, "Enable sensor"); //$NON-NLS-1$
-    			SensorManager sensorMgr = (SensorManager) getSystemService(SENSOR_SERVICE);
-    			Sensor s = sensorMgr.getDefaultSensor(Sensor.TYPE_ORIENTATION);
-    			if (s != null) {
-    				sensorMgr.registerListener(this, s, SensorManager.SENSOR_DELAY_UI);
-    			}
-    			sensorRegistered = true;
-    		}
-    	}
-    }
 	
 	@Override
 	protected void onPause() {
 		super.onPause();
 		if (searchNearBy) {
-			LocationManager service = (LocationManager) getSystemService(LOCATION_SERVICE);
-			service.removeUpdates(gpsListener);
-			service.removeUpdates(networkListener);
-
-			SensorManager sensorMgr = (SensorManager) getSystemService(SENSOR_SERVICE);
-			sensorMgr.unregisterListener(this);
-			sensorRegistered = false;
-			currentLocationProvider = null;
+			app.getLocationProvider().pauseAllUpdates();
+			app.getLocationProvider().removeCompassListener(this);
+			app.getLocationProvider().removeLocationListener(this);
 		}
 	}
 	
@@ -519,38 +548,42 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 	public void onListItemClick(ListView parent, View v, int position, long id) {
 		final Amenity amenity = ((AmenityAdapter) getListAdapter()).getItem(position);
 		final QuickAction qa = new QuickAction(v);
-		String poiSimpleFormat = OsmAndFormatter.getPoiSimpleFormat(amenity, SearchPOIActivity.this, settings.usingEnglishNames());
-		String name = getString(R.string.poi)+" : " + poiSimpleFormat;
+		String poiSimpleFormat = OsmAndFormatter.getPoiSimpleFormat(amenity, getMyApplication(), settings.usingEnglishNames());
+		String name = poiSimpleFormat;
 		int z = Math.max(16, settings.getLastKnownMapZoom());
 		MapActivityActions.createDirectionsActions(qa, amenity.getLocation(), amenity, name, z, this, true , null);
 		ActionItem poiDescription = new ActionItem();
-		poiDescription.setIcon(getResources().getDrawable(R.drawable.list_activities_show_poi_description));
+		poiDescription.setIcon(getResources().getDrawable(R.drawable.ic_action_note_light));
 		poiDescription.setTitle(getString(R.string.poi_context_menu_showdescription));
+		final String d = OsmAndFormatter.getAmenityDescriptionContent(getMyApplication(), amenity, false);
 		poiDescription.setOnClickListener(new OnClickListener() {
 			
 			@Override
 			public void onClick(View v) {
+				// Build text(amenity)
+				
+				// Find and format links
+				SpannableString spannable = new SpannableString(d);
+				Linkify.addLinks(spannable, Linkify.ALL);
+
+				// Create dialog
 				Builder bs = new AlertDialog.Builder(v.getContext());
-				bs.setTitle(OsmAndFormatter.getPoiSimpleFormat(amenity, v.getContext(), settings.USE_ENGLISH_NAMES.get()));
-				StringBuilder d = new StringBuilder();
-				if(amenity.getOpeningHours() != null) {
-					d.append(getString(R.string.opening_hours) + " : ").append(amenity.getOpeningHours()).append("\n");
-				}
-				if(amenity.getPhone() != null) {
-					d.append(getString(R.string.phone) + " : ").append(amenity.getPhone()).append("\n");
-				}
-				if(amenity.getSite() != null) {
-					d.append(getString(R.string.website) + " : ").append(amenity.getSite()).append("\n");
-				}
-				if(amenity.getDescription() != null) {
-					d.append(amenity.getDescription());
-				}
-				bs.setMessage(d.toString());
-				bs.show();
+				bs.setTitle(OsmAndFormatter.getPoiSimpleFormat(amenity, getMyApplication(),
+						settings.USE_ENGLISH_NAMES.get()));
+				bs.setMessage(spannable);
+				AlertDialog dialog = bs.show();
+
+				// Make links clickable
+				TextView textView = (TextView) dialog.findViewById(android.R.id.message);
+				textView.setMovementMethod(LinkMovementMethod.getInstance());
+				textView.setLinksClickable(true);
 			}
+
 		});
-		qa.addActionItem(poiDescription);
-		if (((OsmandApplication)getApplication()).accessibilityEnabled()) {
+		if(d.toString().trim().length() > 0) { 
+			qa.addActionItem(poiDescription);
+		}
+		if (((OsmandApplication)getApplication()).getInternalAPI().accessibilityEnabled()) {
 			ActionItem showDetails = new ActionItem();
 			showDetails.setTitle(getString(R.string.show_details));
 			showDetails.setOnClickListener(new OnClickListener() {
@@ -573,9 +606,9 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		private static final int NEW_SEARCH_INIT = 2;
 		private static final int SEARCH_FURTHER = 3;
 		private int type;
-		private Location location;
+		private net.osmand.Location location;
 		
-		public static SearchAmenityRequest buildRequest(Location l, int type){
+		public static SearchAmenityRequest buildRequest(net.osmand.Location l, int type){
 			SearchAmenityRequest req = new SearchAmenityRequest();
 			req.type = type;
 			req.location = l;
@@ -588,54 +621,56 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		
 		private SearchAmenityRequest request;
 		private TLongHashSet existingObjects = null;
-		private final static int LIMIT_TO_LIVE_SEARCH = 150;
+		private TLongHashSet updateExisting;
 		
 		public SearchAmenityTask(SearchAmenityRequest request){
 			this.request = request;
 			
 		}
 		
-		Location getSearchedLocation(){
+		net.osmand.Location getSearchedLocation(){
 			return request != null ? request.location : null; 
 		}
 
 		@Override
 		protected void onPreExecute() {
-			findViewById(R.id.ProgressBar).setVisibility(View.VISIBLE);
-			findViewById(R.id.SearchAreaText).setVisibility(View.GONE);
-			searchPOILevel.setEnabled(false);
+			getSherlock().setProgressBarIndeterminateVisibility(true);
+			if(searchPOILevel != null) {
+				searchPOILevel.setEnabled(false);
+			}
+			searchFooterButton.setEnabled(false);
+			existingObjects = new TLongHashSet();
+			updateExisting = new TLongHashSet();
 			if(request.type == SearchAmenityRequest.NEW_SEARCH_INIT){
 				amenityAdapter.clear();
 			} else if (request.type == SearchAmenityRequest.SEARCH_FURTHER) {
 				List<Amenity> list = amenityAdapter.getOriginalAmenityList();
-				if (list.size() < LIMIT_TO_LIVE_SEARCH) {
-					existingObjects = new TLongHashSet();
-					for (Amenity a : list) {
-						existingObjects.add(a.getId());
-					}
+				for (Amenity a : list) {
+					updateExisting.add(getAmenityId(a));
 				}
 			}
+		}
+		private long getAmenityId(Amenity a){
+			return (a.getId() << 8) + a.getType().ordinal();
 		}
 		
 		@Override
 		protected void onPostExecute(List<Amenity> result) {
-			findViewById(R.id.ProgressBar).setVisibility(View.GONE);
-			findViewById(R.id.SearchAreaText).setVisibility(View.VISIBLE);
-			searchPOILevel.setEnabled(filter.isSearchFurtherAvailable());
-			searchPOILevel.setText(R.string.search_POI_level_btn);
+			getSherlock().setProgressBarIndeterminateVisibility(false);
+			updateSearchPoiTextButton(true);
 			if (isNameFinderFilter()) {
-				if (!Algoritms.isEmpty(((NameFinderPoiFilter) filter).getLastError())) {
+				if (!Algorithms.isEmpty(((NameFinderPoiFilter) filter).getLastError())) {
 					AccessibleToast.makeText(SearchPOIActivity.this, ((NameFinderPoiFilter) filter).getLastError(), Toast.LENGTH_LONG).show();
 				}
 				amenityAdapter.setNewModel(result, "");
-				showOnMap.setEnabled(amenityAdapter.getCount() > 0);
+				showOnMapItem.setEnabled(amenityAdapter.getCount() > 0);
 			} else if (isSearchByNameFilter()) {
-				showOnMap.setEnabled(amenityAdapter.getCount() > 0);
+				showOnMapItem.setEnabled(amenityAdapter.getCount() > 0);
 				amenityAdapter.setNewModel(result, "");
 			} else {
 				amenityAdapter.setNewModel(result, searchFilter.getText().toString());
 			}
-			searchArea.setText(filter.getSearchArea());
+			updateSubtitle();
 		}
 		
 		@Override
@@ -662,15 +697,19 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 
 		@Override
 		public boolean publish(Amenity object) {
-			if(request.type == SearchAmenityRequest.NEW_SEARCH_INIT){
-				publishProgress(object);
-			} else if (request.type == SearchAmenityRequest.SEARCH_FURTHER) {
-				if(existingObjects != null && !existingObjects.contains(object.getId())){
+			long id = getAmenityId(object);
+			if (existingObjects != null && !existingObjects.contains(id)) {
+				existingObjects.add(id);
+				if (request.type == SearchAmenityRequest.NEW_SEARCH_INIT) {
 					publishProgress(object);
+				} else if (request.type == SearchAmenityRequest.SEARCH_FURTHER) {
+					if(!updateExisting.contains(id)){
+						publishProgress(object);
+					}
 				}
+				return true;
 			}
-			
-			return true;
+			return false;
 		}
 		
 	}
@@ -685,9 +724,11 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			this.setNotifyOnChange(false);
 		}
 		
+
 		public List<Amenity> getOriginalAmenityList() {
 			return originalAmenityList;
 		}
+
 
 		public void setNewModel(List<Amenity> amenityList, String filter) {
 			setNotifyOnChange(false);
@@ -711,13 +752,14 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			}
 			float[] mes = null;
 			TextView label = (TextView) row.findViewById(R.id.poi_label);
+			ImageView direction = (ImageView) row.findViewById(R.id.poi_direction);
 			ImageView icon = (ImageView) row.findViewById(R.id.poi_icon);
 			Amenity amenity = getItem(position);
-			Location loc = location;
+			net.osmand.Location loc = location;
 			if(loc != null){
 				mes = new float[2];
 				LatLon l = amenity.getLocation();
-				Location.distanceBetween(l.getLatitude(), l.getLongitude(), loc.getLatitude(), loc.getLongitude(), mes);
+				net.osmand.Location.distanceBetween(l.getLatitude(), l.getLongitude(), loc.getLatitude(), loc.getLongitude(), mes);
 			}
 			int opened = -1;
 			if (amenity.getOpeningHours() != null) {
@@ -740,20 +782,31 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 				float a = h != null ? h : 0;
 				draw.setAngle(mes[1] - a + 180);
 				draw.setOpenedColor(opened);
-				icon.setImageDrawable(draw);
+				direction.setImageDrawable(draw);
 			} else {
 				if(opened == -1){
-					icon.setImageResource(R.drawable.poi);
+					direction.setImageResource(R.drawable.poi);
 				} else if(opened == 0){
-					icon.setImageResource(R.drawable.opened_poi);
+					direction.setImageResource(R.drawable.opened_poi);
 				} else {
-					icon.setImageResource(R.drawable.closed_poi);
+					direction.setImageResource(R.drawable.closed_poi);
 				}
+			}
+			StringBuilder tag = new StringBuilder();
+			StringBuilder value = new StringBuilder();
+			MapRenderingTypes.getDefault().getAmenityTagValue(amenity.getType(), amenity.getSubType(),
+					tag, value);
+			if(RenderingIcons.containsBigIcon(tag + "_" + value)) {
+				icon.setImageResource(RenderingIcons.getBigIconResourceId(tag + "_" + value));
+			} else if(RenderingIcons.containsBigIcon(value.toString())) {
+				icon.setImageResource(RenderingIcons.getBigIconResourceId(value.toString()));
+			} else {
+				icon.setImageDrawable(null);
 			}
 
 			String distance = "  ";
 			if(mes != null){
-				distance = " " + OsmAndFormatter.getFormattedDistance((int) mes[0], SearchPOIActivity.this) + "  "; //$NON-NLS-1$
+				distance = " " + OsmAndFormatter.getFormattedDistance((int) mes[0], getMyApplication()) + "  "; //$NON-NLS-1$
 			}
 			String poiType = OsmAndFormatter.getPoiStringWithoutType(amenity, settings.usingEnglishNames());
 			label.setText(distance + poiType, TextView.BufferType.SPANNABLE);
@@ -807,7 +860,7 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 
 	private void showPOIDetails(final Amenity amenity, boolean en) {
 		AlertDialog.Builder b = new AlertDialog.Builder(SearchPOIActivity.this);
-		b.setTitle(OsmAndFormatter.getPoiSimpleFormat(amenity, SearchPOIActivity.this, en));
+		b.setTitle(OsmAndFormatter.getPoiSimpleFormat(amenity, getMyApplication(), en));
 		b.setPositiveButton(R.string.default_buttons_ok, new DialogInterface.OnClickListener() {
 			@Override
 			public void onClick(DialogInterface dialog, int id) {
@@ -815,13 +868,14 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			}
 		});
 		List<String> attributes = new ArrayList<String>();
+		NavigationInfo navigationInfo = app.getLocationProvider().getNavigationInfo();
 		String direction = navigationInfo.getDirectionString(amenity.getLocation(), heading);
 		if (direction != null)
 			attributes.add(direction);
-		if (amenity.getPhone() != null) 
-			attributes.add(getString(R.string.phone) + " " + amenity.getPhone());
-		if (amenity.getOpeningHours() != null)
-			attributes.add(getString(R.string.opening_hours) + " " + amenity.getOpeningHours());
+		String[] as = OsmAndFormatter.getAmenityDescriptionContent(getMyApplication(), amenity, false).split("\n");
+		for(String s: as) {
+			attributes.add(s.replace(':', ' '));
+		}
 		attributes.add(getString(R.string.navigate_point_latitude) + " " + Double.toString(amenity.getLocation().getLatitude()));
 		attributes.add(getString(R.string.navigate_point_longitude) + " " + Double.toString(amenity.getLocation().getLongitude()));
 		b.setItems(attributes.toArray(new String[attributes.size()]),
@@ -833,66 +887,6 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		b.show();
 	}
 
-	// Working with location listeners
-	private LocationListener networkListener = new LocationListener(){
-		@Override
-		public void onLocationChanged(Location location) {
-			setLocation(location);
-		}
-
-		@Override
-		public void onProviderDisabled(String provider) {
-			setLocation(null);
-		}
-
-		@Override
-		public void onProviderEnabled(String provider) {
-		}
-
-		@Override
-		public void onStatusChanged(String provider, int status, Bundle extras) {
-			if(LocationProvider.OUT_OF_SERVICE == status){
-				setLocation(null);
-			}
-		}
-	};
-	private LocationListener gpsListener = new LocationListener(){
-		@Override
-		public void onLocationChanged(Location location) {
-			setLocation(location);
-		}
-
-		@Override
-		public void onProviderDisabled(String provider) {
-			setLocation(null);
-		}
-
-		@Override
-		public void onProviderEnabled(String provider) {
-		}
-
-		@Override
-		public void onStatusChanged(String provider, int status, Bundle extras) {
-			LocationManager service = (LocationManager) getSystemService(LOCATION_SERVICE);
-			// do not change provider for temporarily unavailable (possible bug for htc hero 2.1 ?)
-			if (LocationProvider.OUT_OF_SERVICE == status /*|| LocationProvider.TEMPORARILY_UNAVAILABLE == status*/) {
-				if(LocationProvider.OUT_OF_SERVICE == status){
-					setLocation(null);
-				}
-				if (!isRunningOnEmulator() && service.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-					if (!Algoritms.objectEquals(currentLocationProvider, LocationManager.NETWORK_PROVIDER)) {
-						currentLocationProvider = LocationManager.NETWORK_PROVIDER;
-						service.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, GPS_TIMEOUT_REQUEST, GPS_DIST_REQUEST, this);
-					}
-				}
-			} else if (LocationProvider.AVAILABLE == status) {
-				if (!Algoritms.objectEquals(currentLocationProvider, LocationManager.GPS_PROVIDER)) {
-					currentLocationProvider = LocationManager.GPS_PROVIDER;
-					service.removeUpdates(networkListener);
-				}
-			}
-		}
-	};
 	
 	class DirectionDrawable extends Drawable {
 		Paint paintRouteDirection;
@@ -902,19 +896,17 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 		public DirectionDrawable(){
 			paintRouteDirection = new Paint();
 			paintRouteDirection.setStyle(Style.FILL_AND_STROKE);
-			paintRouteDirection.setColor(getResources().getColor(R.color.poi_direction));
+			paintRouteDirection.setColor(getResources().getColor(R.color.color_unknown));
 			paintRouteDirection.setAntiAlias(true);
-			
-			
 		}
 		
 		public void setOpenedColor(int opened){
 			if(opened == 0){
-				paintRouteDirection.setColor(getResources().getColor(R.color.poi_open));
+				paintRouteDirection.setColor(getResources().getColor(R.color.color_ok));
 			} else if(opened == -1){
-				paintRouteDirection.setColor(getResources().getColor(R.color.poi_unknown_arrow));
+				paintRouteDirection.setColor(getResources().getColor(R.color.color_unknown));
 			} else {
-				paintRouteDirection.setColor(getResources().getColor(R.color.poi_closed));
+				paintRouteDirection.setColor(getResources().getColor(R.color.color_warning));
 			}
 		}
 		
@@ -945,4 +937,6 @@ public class SearchPOIActivity extends OsmandListActivity implements SensorEvent
 			paintRouteDirection.setColorFilter(cf);
 		}
 	}
+
+
 }

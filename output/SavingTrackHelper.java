@@ -8,16 +8,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import net.osmand.GPXUtilities;
-import net.osmand.GPXUtilities.GPXFile;
-import net.osmand.GPXUtilities.Track;
-import net.osmand.GPXUtilities.TrkSegment;
-import net.osmand.GPXUtilities.WptPt;
-import net.osmand.LogUtil;
-import net.osmand.osm.LatLon;
+import net.osmand.IndexConstants;
+import net.osmand.PlatformUtil;
+import net.osmand.data.LatLon;
+import net.osmand.plus.GPXUtilities;
+import net.osmand.plus.GPXUtilities.GPXFile;
+import net.osmand.plus.GPXUtilities.Track;
+import net.osmand.plus.GPXUtilities.TrkSegment;
+import net.osmand.plus.GPXUtilities.WptPt;
+import net.osmand.plus.OsmAndLocationProvider;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.OsmandSettings;
-import net.osmand.plus.ResourceManager;
+import net.osmand.plus.monitoring.OsmandMonitoringPlugin;
 
 import org.apache.commons.logging.Log;
 
@@ -46,7 +49,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	public final static String POINT_COL_LON = "lon"; //$NON-NLS-1$
 	public final static String POINT_COL_DESCRIPTION = "description"; //$NON-NLS-1$
 	
-	public final static Log log = LogUtil.getLog(SavingTrackHelper.class);
+	public final static Log log = PlatformUtil.getLog(SavingTrackHelper.class);
 
 	private String updateScript;
 	private String updatePointsScript;
@@ -102,24 +105,28 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	
 		
 	public boolean hasDataToSave() {
-		SQLiteDatabase db = getWritableDatabase();
-		if (db != null) {
-			try {
-				Cursor q = db.query(false, TRACK_NAME, new String[0], null, null, null, null, null, null);
-				boolean has = q.moveToFirst();
-				q.close();
-				if (has) {
-					return true;
+		try {
+			SQLiteDatabase db = getWritableDatabase();
+			if (db != null) {
+				try {
+					Cursor q = db.query(false, TRACK_NAME, new String[0], null, null, null, null, null, null);
+					boolean has = q.moveToFirst();
+					q.close();
+					if (has) {
+						return true;
+					}
+					q = db.query(false, POINT_NAME, new String[0], null, null, null, null, null, null);
+					has = q.moveToFirst();
+					q.close();
+					if (has) {
+						return true;
+					}
+				} finally {
+					db.close();
 				}
-				q = db.query(false, POINT_NAME, new String[0], null, null, null, null, null, null);
-				has = q.moveToFirst();
-				q.close();
-				if (has) {
-					return true;
-				}
-			} finally {
-				db.close();
 			}
+		} catch(RuntimeException e) {
+			return false;
 		}
 
 		return false;
@@ -130,12 +137,10 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	 */
 	public List<String> saveDataToGpx() {
 		List<String> warnings = new ArrayList<String>();
-		File dir = ((OsmandApplication) ctx.getApplicationContext()).getSettings().getExternalStorageDirectory();
-		if (dir.canWrite()) {
-			dir = new File(dir, ResourceManager.GPX_PATH);
+		File dir = ctx.getAppPath(IndexConstants.GPX_INDEX_DIR);
+		if (dir.getParentFile().canWrite()) {
 			dir.mkdirs();
 			if (dir.exists()) {
-
 				Map<String, GPXFile> data = collectRecordedData();
 
 				// save file
@@ -280,6 +285,17 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		addTrackPoint(null, true);
 	}
 	
+	public void updateLocation(net.osmand.Location location) {
+		// use because there is a bug on some devices with location.getTime()
+		long locationTime = System.currentTimeMillis();
+		OsmandSettings settings = ctx.getSettings();
+		if (OsmAndLocationProvider.isPointAccurateForRouting(location) && settings.SAVE_TRACK_TO_GPX.get()
+				&& OsmandPlugin.getEnabledPlugin(OsmandMonitoringPlugin.class) != null) {
+			insertData(location.getLatitude(), location.getLongitude(), location.getAltitude(), location.getSpeed(),
+					location.getAccuracy(), locationTime, settings);
+		}
+	}
+	
 	public void insertData(double lat, double lon, double alt, double speed, double hdop, long time, OsmandSettings settings){
 		//* 1000 in next line seems to be wrong with new IntervalChooseDialog
 		//if (time - lastTimeUpdated > settings.SAVE_TRACK_INTERVAL.get() * 1000) {
@@ -291,7 +307,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 				newSegment = true;
 			} else {
 				float[] lastInterval = new float[1];
-				Location.distanceBetween(lat, lon, lastPoint.getLatitude(), lastPoint.getLongitude(), lastInterval);
+				net.osmand.Location.distanceBetween(lat, lon, lastPoint.getLatitude(), lastPoint.getLongitude(), lastInterval);
 				distance += lastInterval[0];
 				lastPoint = new LatLon(lat, lon);
 			}

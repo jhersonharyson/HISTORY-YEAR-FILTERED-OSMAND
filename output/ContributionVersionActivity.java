@@ -12,9 +12,10 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import net.osmand.AndroidUtils;
 import net.osmand.access.AccessibleToast;
 import net.osmand.plus.R;
-import net.osmand.plus.ResourceManager;
+import net.osmand.util.Algorithms;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
@@ -24,9 +25,9 @@ import android.app.AlertDialog.Builder;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.format.DateFormat;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -57,11 +58,9 @@ public class ContributionVersionActivity extends OsmandListActivity {
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
-
-		pathToDownload = getMyApplication().getSettings().extendOsmandPath(ResourceManager.APP_DIR + "osmandToInstall.apk");
-		CustomTitleBar titleBar = new CustomTitleBar(this, R.string.download_files, R.drawable.tab_download_screen_icon);
-		setContentView(R.layout.download_builds);
-		titleBar.afterSetContentView();
+		pathToDownload = getMyApplication().getAppPath("osmandToInstall.apk");
+		setContentView(android.R.layout.list_content);
+		getSupportActionBar().setSubtitle(R.string.select_build_to_install);
 		
 		String installDate = getMyApplication().getSettings().CONTRIBUTION_INSTALL_APP_DATE.get();
 		if(installDate != null){
@@ -133,8 +132,8 @@ public class ContributionVersionActivity extends OsmandListActivity {
 		if (showMessage) {
 			AccessibleToast.makeText(
 					this,
-					MessageFormat.format(getString(R.string.build_installed), currentSelectedBuild.tag, dateFormat
-							.format(currentSelectedBuild.date)), Toast.LENGTH_LONG).show();
+					MessageFormat.format(getString(R.string.build_installed), currentSelectedBuild.tag, 
+							AndroidUtils.formatDate(getMyApplication(), currentSelectedBuild.date.getTime())), Toast.LENGTH_LONG).show();
 		}
 		getMyApplication().getSettings().CONTRIBUTION_INSTALL_APP_DATE.set(dateFormat.format(d));
 	}
@@ -197,7 +196,8 @@ public class ContributionVersionActivity extends OsmandListActivity {
 		super.onListItemClick(l, v, position, id);
 		final OsmAndBuild item = (OsmAndBuild) getListAdapter().getItem(position);
 		Builder builder = new AlertDialog.Builder(this);
-		builder.setMessage(MessageFormat.format(getString(R.string.install_selected_build), item.tag, dateFormat.format(item.date), item.size));
+		builder.setMessage(MessageFormat.format(getString(R.string.install_selected_build), item.tag, 
+				AndroidUtils.formatDate(getMyApplication(), item.date.getTime()), item.size));
 		builder.setPositiveButton(R.string.default_buttons_yes, new DialogInterface.OnClickListener() {
 			
 			@Override
@@ -250,18 +250,17 @@ public class ContributionVersionActivity extends OsmandListActivity {
 			
 			TextView description = (TextView) row.findViewById(R.id.download_descr);
 			StringBuilder format = new StringBuilder();
-			format.append(dateFormat.format(build.date))/*.append(" : ").append(build.size).append(" MB")*/;
+			format.append(AndroidUtils.formatDate(getMyApplication(), build.date.getTime()))/*.append(" : ").append(build.size).append(" MB")*/;
 			description.setText(format.toString());
 
+			int color = getResources().getColor(R.color.color_unknown);
 			if(currentInstalledDate != null){
 				if(currentInstalledDate.before(build.date)){
-					tagView.setTextColor(getResources().getColor(R.color.color_orange));
-				} else {
-					tagView.setTextColor(Color.WHITE);
+					color = getResources().getColor(R.color.color_update);
 				}
-			} else {
-				tagView.setTextColor(Color.WHITE);
 			}
+			description.setTextColor(color);
+			tagView.setTextColor(color);
 			return row;
 		}
 		

@@ -1,21 +1,21 @@
 package net.osmand.plus.activities.search;
 
-import java.text.Collator;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
 import net.osmand.CollatorStringMatcher;
 import net.osmand.CollatorStringMatcher.StringMatcherMode;
-import net.osmand.OsmAndFormatter;
+import net.osmand.PlatformUtil;
 import net.osmand.ResultMatcher;
 import net.osmand.data.City;
 import net.osmand.data.City.CityType;
-import net.osmand.osm.LatLon;
-import net.osmand.osm.MapUtils;
+import net.osmand.data.LatLon;
+import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
-import net.osmand.plus.RegionAddressRepository;
+import net.osmand.plus.resources.RegionAddressRepository;
+import net.osmand.util.MapUtils;
 import android.os.AsyncTask;
 import android.os.Message;
 import android.view.Gravity;
@@ -54,10 +54,9 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 	
 	@Override
 	protected Comparator<? super City> createComparator() {
-		final Collator cs = Collator.getInstance();
 		final boolean en = getMyApplication().getSettings().usingEnglishNames();
 		final StringMatcherMode startsWith = CollatorStringMatcher.StringMatcherMode.CHECK_ONLY_STARTS_WITH;
-		return new CityComparator(startsWith, cs,  en);
+		return new CityComparator(startsWith, en);
 	}
 	
 	@Override
@@ -150,10 +149,10 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 		if (getFilter().length() > 2 && locationToSearch != null && l != null) {
 			String name = obj.getName(region.useEnglishNames());
 			if (obj.getType() != null) {
-				name += " [" + OsmAndFormatter.toPublicString(obj.getType(), this) + "]";
+				name += " [" + OsmAndFormatter.toPublicString(obj.getType(), getMyApplication()) + "]";
 			}
 			return name + " - " + //$NON-NLS-1$
-					OsmAndFormatter.getFormattedDistance((int) MapUtils.getDistance(l, locationToSearch), this);
+					OsmAndFormatter.getFormattedDistance((int) MapUtils.getDistance(l, locationToSearch), getMyApplication());
 		} else {
 			return obj.getName(region.useEnglishNames());
 		}
@@ -170,18 +169,18 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 		if (region.getCityById(obj.getId(), obj.getName(region.useEnglishNames())) == null) {
 			region.addCityToPreloadedList((City) obj);
 		}
-		finish();
+		quitActivity(SearchStreetByNameActivity.class);
 	}
 	
 	private final class CityComparator implements Comparator<City> {
 		private final StringMatcherMode startsWith;
-		private final Collator cs;
+		private final net.osmand.Collator cs;
 		private final boolean en;
 
-		private CityComparator(StringMatcherMode startsWith, Collator cs,
+		private CityComparator(StringMatcherMode startsWith, 
 				boolean en) {
 			this.startsWith = startsWith;
-			this.cs = cs;
+			this.cs = PlatformUtil.primaryCollator();
 			this.en = en;
 		}
 
@@ -219,5 +218,6 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 			return c1? 1 : -1;
 		}
 	}
+	
 
 }
