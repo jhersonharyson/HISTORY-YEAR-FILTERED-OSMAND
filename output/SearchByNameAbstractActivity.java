@@ -12,6 +12,7 @@ import java.util.Map;
 import net.osmand.Collator;
 import net.osmand.CollatorStringMatcher;
 import net.osmand.CollatorStringMatcher.StringMatcherMode;
+import net.osmand.OsmAndCollator;
 import net.osmand.PlatformUtil;
 import net.osmand.data.LatLon;
 import net.osmand.data.MapObject;
@@ -21,9 +22,10 @@ import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper;
 import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.activities.MapActivityActions;
 import net.osmand.plus.activities.OsmandListActivity;
 import net.osmand.plus.activities.search.SearchAddressFragment.AddressInformation;
+import net.osmand.plus.dialogs.DirectionsDialogs;
+import net.osmand.plus.dialogs.FavoriteDialogs;
 
 import org.apache.commons.logging.Log;
 
@@ -113,7 +115,7 @@ public abstract class SearchByNameAbstractActivity<T> extends OsmandListActivity
 		final NamesAdapter namesAdapter = new NamesAdapter(new ArrayList<T>(), createComparator()); //$NON-NLS-1$
 		setListAdapter(namesAdapter);
 		
-		collator = PlatformUtil.primaryCollator();
+		collator = OsmAndCollator.primaryCollator();
  	    
 		
 		progress = (ProgressBar) findViewById(R.id.ProgressBar);
@@ -236,7 +238,10 @@ public abstract class SearchByNameAbstractActivity<T> extends OsmandListActivity
 	
 	@Override
 	protected void onRestoreInstanceState(Bundle prevState) {
-		endingText = prevState.getString("ENDING_TEXT", "");
+		endingText = prevState.getString("ENDING_TEXT");
+		if(endingText == null) {
+			endingText = "";
+		}
 		previousSpan = prevState.getParcelable("PREVIOUS_SPAN"); 
 		super.onRestoreInstanceState(prevState);
 	}
@@ -516,7 +521,7 @@ public abstract class SearchByNameAbstractActivity<T> extends OsmandListActivity
 	public boolean onCreateOptionsMenu(Menu menu) {
 		if (sequentialSearch) {
 			boolean light = ((OsmandApplication) getApplication()).getSettings().isLightActionBar();
-			com.actionbarsherlock.view.MenuItem menuItem = menu.add(0, NAVIGATE_TO, 0, R.string.get_directions)
+			com.actionbarsherlock.view.MenuItem menuItem = menu.add(0, NAVIGATE_TO, 0, R.string.context_menu_item_directions_to)
 					.setShowAsActionFlags(MenuItem.SHOW_AS_ACTION_IF_ROOM | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
 			menuItem = menuItem.setIcon(light ? R.drawable.ic_action_gdirections_light
 					: R.drawable.ic_action_gdirections_dark);
@@ -584,15 +589,15 @@ public abstract class SearchByNameAbstractActivity<T> extends OsmandListActivity
 		if (ai != null) {
 			if (mode == ADD_TO_FAVORITE) {
 				Bundle b = new Bundle();
-				Dialog dlg = MapActivityActions.createAddFavouriteDialog(getActivity(), b);
+				Dialog dlg = FavoriteDialogs.createAddFavouriteDialog(getActivity(), b);
 				dlg.show();
-				MapActivityActions.prepareAddFavouriteDialog(getActivity(), dlg, b, searchPoint.getLatitude(),
+				FavoriteDialogs.prepareAddFavouriteDialog(getActivity(), dlg, b, searchPoint.getLatitude(),
 						searchPoint.getLongitude(), ai.objectName);
 			} else if (mode == NAVIGATE_TO) {
-				MapActivityActions.directionsToDialogAndLaunchMap(getActivity(), searchPoint.getLatitude(),
+				DirectionsDialogs.directionsToDialogAndLaunchMap(getActivity(), searchPoint.getLatitude(),
 						searchPoint.getLongitude(), ai.historyName);
 			} else if (mode == ADD_WAYPOINT) {
-				MapActivityActions.addWaypointDialogAndLaunchMap(getActivity(), searchPoint.getLatitude(),
+				DirectionsDialogs.addWaypointDialogAndLaunchMap(getActivity(), searchPoint.getLatitude(),
 						searchPoint.getLongitude(), ai.historyName);
 			} else if (mode == SHOW_ON_MAP) {
 				settings.setMapLocationToShow(searchPoint.getLatitude(), searchPoint.getLongitude(), ai.zoom,

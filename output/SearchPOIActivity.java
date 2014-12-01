@@ -15,8 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import net.londatiga.android.ActionItem;
-import net.londatiga.android.QuickAction;
 import net.osmand.ResultMatcher;
 import net.osmand.access.AccessibleToast;
 import net.osmand.access.NavigationInfo;
@@ -24,11 +22,14 @@ import net.osmand.data.Amenity;
 import net.osmand.data.AmenityType;
 import net.osmand.data.LatLon;
 import net.osmand.osm.MapRenderingTypes;
+import net.osmand.plus.ContextMenuAdapter;
+import net.osmand.plus.ContextMenuAdapter.Item;
+import net.osmand.plus.ContextMenuAdapter.OnContextMenuClick;
 import net.osmand.plus.NameFinderPoiFilter;
+import net.osmand.plus.OsmAndConstants;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
 import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
-import net.osmand.plus.OsmAndConstants;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.PoiFilter;
@@ -38,7 +39,9 @@ import net.osmand.plus.activities.EditPOIFilterActivity;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.MapActivityActions;
 import net.osmand.plus.activities.OsmandListActivity;
+import net.osmand.plus.dialogs.DirectionsDialogs;
 import net.osmand.plus.render.RenderingIcons;
+import net.osmand.plus.views.DirectionDrawable;
 import net.osmand.util.Algorithms;
 import net.osmand.util.OpeningHoursParser;
 import net.osmand.util.OpeningHoursParser.OpeningHours;
@@ -70,9 +73,8 @@ import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.View.OnClickListener;
-import android.view.ViewGroup.LayoutParams;
 import android.view.ViewGroup;
+import android.view.ViewGroup.LayoutParams;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -116,7 +118,7 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 	
 	private Handler uiHandler;
 	private OsmandSettings settings;
-	private Path directionPath = new Path();
+
 	private float width = 24;
 	private float height = 24;
 	
@@ -234,8 +236,7 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 		uiHandler = new Handler();
 		searchFilter = (EditText) findViewById(R.id.SearchFilter);
 		searchFilterLayout = findViewById(R.id.SearchFilterLayout);
-		directionPath = createDirectionPath();
-		
+
 		settings = ((OsmandApplication) getApplication()).getSettings();
 		
 		searchFilter.addTextChangedListener(new TextWatcher(){
@@ -259,6 +260,14 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 
 			@Override
 			public void onTextChanged(CharSequence s, int start, int before, int count) {
+			}
+		});
+		searchFilter.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+			@Override
+			public void onFocusChange(View v, boolean hasFocus) {
+				if (hasFocus) {
+					getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+				}
 			}
 		});
 		addFooterView();
@@ -287,33 +296,6 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 		getListView().addFooterView(ll);
 	}
 	
-	private Path createDirectionPath() {
-		int h = 15;
-		int w = 4;
-		float sarrowL = 8; // side of arrow
-		float harrowL = (float) Math.sqrt(2) * sarrowL; // hypotenuse of arrow
-		float hpartArrowL = (float) (harrowL - w) / 2;
-		Path path = new Path();
-		path.moveTo(width / 2, height - (height - h) / 3);
-		path.rMoveTo(w / 2, 0);
-		path.rLineTo(0, -h);
-		path.rLineTo(hpartArrowL, 0);
-		path.rLineTo(-harrowL / 2, -harrowL / 2); // center
-		path.rLineTo(-harrowL / 2, harrowL / 2);
-		path.rLineTo(hpartArrowL, 0);
-		path.rLineTo(0, h);
-		
-		Matrix pathTransform = new Matrix();
-		WindowManager mgr = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-		DisplayMetrics dm = new DisplayMetrics();
-		mgr.getDefaultDisplay().getMetrics(dm);
-		pathTransform.postScale(dm.density, dm.density);
-		path.transform(pathTransform);
-		width *= dm.density;
-		height *= dm.density;
-		return path;
-	}
-
 	@Override
 	protected void onResume() {
 		super.onResume();
@@ -362,8 +344,11 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 		} else if(isSearchByNameFilter() ){
 			searchFilterLayout.setVisibility(View.VISIBLE);
 		}
-		app.getLocationProvider().addCompassListener(this);
-		app.getLocationProvider().registerOrUnregisterCompassListener(true);
+		if(!app.accessibilityEnabled()) {
+			app.getLocationProvider().addCompassListener(this);
+			app.getLocationProvider().registerOrUnregisterCompassListener(true);
+		}
+		searchFilter.requestFocus();
 	}
 
 
@@ -431,7 +416,10 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 			title = R.string.search_POI_level_btn;
 			enabled = (taskAlreadyFinished || currentSearchTask.getStatus() != Status.RUNNING) && filter.isSearchFurtherAvailable();
 		} else if (filter != null) {
-			title = R.string.search_button;
+			// TODO: for search-by-name case, as long as filter text field is empty, we could disable the search button (with title search_button) until at least 2 characters are typed
+			//title = R.string.search_button;
+			// The following is needed as it indicates that search radius can be extended in search-by-name case
+			title = R.string.search_POI_level_btn;
 			enabled = (taskAlreadyFinished || currentSearchTask.getStatus() != Status.RUNNING) && filter.isSearchFurtherAvailable();
 		}
 		if (searchPOILevel != null) {
@@ -537,7 +525,9 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 		super.onPause();
 		if (searchNearBy) {
 			app.getLocationProvider().pauseAllUpdates();
-			app.getLocationProvider().removeCompassListener(this);
+			if(!app.accessibilityEnabled()) {
+				app.getLocationProvider().removeCompassListener(this);
+			}
 			app.getLocationProvider().removeLocationListener(this);
 		}
 	}
@@ -545,57 +535,56 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 	
 
 	@Override
-	public void onListItemClick(ListView parent, View v, int position, long id) {
+	public void onListItemClick(ListView parent, final View v, int position, long id) {
 		final Amenity amenity = ((AmenityAdapter) getListAdapter()).getItem(position);
-		final QuickAction qa = new QuickAction(v);
+		ContextMenuAdapter adapter = new ContextMenuAdapter(v.getContext());
+		adapter.setAnchor(v);
 		String poiSimpleFormat = OsmAndFormatter.getPoiSimpleFormat(amenity, getMyApplication(), settings.usingEnglishNames());
 		String name = poiSimpleFormat;
 		int z = Math.max(16, settings.getLastKnownMapZoom());
-		MapActivityActions.createDirectionsActions(qa, amenity.getLocation(), amenity, name, z, this, true , null);
-		ActionItem poiDescription = new ActionItem();
-		poiDescription.setIcon(getResources().getDrawable(R.drawable.ic_action_note_light));
-		poiDescription.setTitle(getString(R.string.poi_context_menu_showdescription));
+		
+		DirectionsDialogs.createDirectionsActions(adapter, amenity.getLocation(), amenity, name, z, this, true );
 		final String d = OsmAndFormatter.getAmenityDescriptionContent(getMyApplication(), amenity, false);
-		poiDescription.setOnClickListener(new OnClickListener() {
-			
-			@Override
-			public void onClick(View v) {
-				// Build text(amenity)
-				
-				// Find and format links
-				SpannableString spannable = new SpannableString(d);
-				Linkify.addLinks(spannable, Linkify.ALL);
-
-				// Create dialog
-				Builder bs = new AlertDialog.Builder(v.getContext());
-				bs.setTitle(OsmAndFormatter.getPoiSimpleFormat(amenity, getMyApplication(),
-						settings.USE_ENGLISH_NAMES.get()));
-				bs.setMessage(spannable);
-				AlertDialog dialog = bs.show();
-
-				// Make links clickable
-				TextView textView = (TextView) dialog.findViewById(android.R.id.message);
-				textView.setMovementMethod(LinkMovementMethod.getInstance());
-				textView.setLinksClickable(true);
-			}
-
-		});
 		if(d.toString().trim().length() > 0) { 
-			qa.addActionItem(poiDescription);
-		}
-		if (((OsmandApplication)getApplication()).getInternalAPI().accessibilityEnabled()) {
-			ActionItem showDetails = new ActionItem();
-			showDetails.setTitle(getString(R.string.show_details));
-			showDetails.setOnClickListener(new OnClickListener() {
+			Item poiDescr = adapter.item(R.string.poi_context_menu_showdescription).icons(
+					R.drawable.ic_action_note_dark, R.drawable.ic_action_note_light);
+			poiDescr.listen(new OnContextMenuClick() {
 				
 				@Override
-				public void onClick(View v) {
-					showPOIDetails(amenity, settings.usingEnglishNames());
+				public boolean onContextMenuClick(ArrayAdapter<?> adapter, int itemId, int pos, boolean isChecked) {
+					// Build text(amenity)
+					
+					// Find and format links
+					SpannableString spannable = new SpannableString(d);
+					Linkify.addLinks(spannable, Linkify.ALL);
+
+					// Create dialog
+					Builder bs = new AlertDialog.Builder(v.getContext());
+					bs.setTitle(OsmAndFormatter.getPoiSimpleFormat(amenity, getMyApplication(),
+							settings.usingEnglishNames()));
+					bs.setMessage(spannable);
+					AlertDialog dialog = bs.show();
+
+					// Make links clickable
+					TextView textView = (TextView) dialog.findViewById(android.R.id.message);
+					textView.setMovementMethod(LinkMovementMethod.getInstance());
+					textView.setLinksClickable(true);
+					return true;
 				}
-			});
-			qa.addActionItem(showDetails);
+			}).reg();
 		}
-		qa.show();
+		if (((OsmandApplication)getApplication()).accessibilityEnabled()) {
+			Item showDetails = adapter.item(R.string.show_details);
+			showDetails.listen(new OnContextMenuClick() {
+				
+				@Override
+				public boolean onContextMenuClick(ArrayAdapter<?> adapter, int itemId, int pos, boolean isChecked) {
+					showPOIDetails(amenity, settings.usingEnglishNames());
+					return true;
+				}
+			}).reg();
+		}
+		MapActivityActions.showObjectContextMenu(adapter, this, null);
 		
 		
 	}
@@ -777,7 +766,7 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 				}
 			}
 			if(loc != null){
-				DirectionDrawable draw = new DirectionDrawable();
+				DirectionDrawable draw = new DirectionDrawable(SearchPOIActivity.this, width, height, false);
 				Float h = heading;
 				float a = h != null ? h : 0;
 				draw.setAngle(mes[1] - a + 180);
@@ -886,57 +875,5 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 			});
 		b.show();
 	}
-
-	
-	class DirectionDrawable extends Drawable {
-		Paint paintRouteDirection;
-		
-		private float angle;
-		
-		public DirectionDrawable(){
-			paintRouteDirection = new Paint();
-			paintRouteDirection.setStyle(Style.FILL_AND_STROKE);
-			paintRouteDirection.setColor(getResources().getColor(R.color.color_unknown));
-			paintRouteDirection.setAntiAlias(true);
-		}
-		
-		public void setOpenedColor(int opened){
-			if(opened == 0){
-				paintRouteDirection.setColor(getResources().getColor(R.color.color_ok));
-			} else if(opened == -1){
-				paintRouteDirection.setColor(getResources().getColor(R.color.color_unknown));
-			} else {
-				paintRouteDirection.setColor(getResources().getColor(R.color.color_warning));
-			}
-		}
-		
-		
-		public void setAngle(float angle){
-			this.angle = angle;
-		}
-
-		@Override
-		public void draw(Canvas canvas) {
-			canvas.rotate(angle, width/2, height/2);
-			canvas.drawPath(directionPath, paintRouteDirection);
-		}
-
-		@Override
-		public int getOpacity() {
-			return 0;
-		}
-
-		@Override
-		public void setAlpha(int alpha) {
-			paintRouteDirection.setAlpha(alpha);
-			
-		}
-
-		@Override
-		public void setColorFilter(ColorFilter cf) {
-			paintRouteDirection.setColorFilter(cf);
-		}
-	}
-
 
 }

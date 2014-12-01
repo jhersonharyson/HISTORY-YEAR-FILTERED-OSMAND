@@ -17,7 +17,6 @@ import net.osmand.plus.audionotes.AudioVideoNotesPlugin.Recording;
 import net.osmand.plus.views.ContextMenuLayer.IContextMenuProvider;
 import net.osmand.plus.views.OsmandMapLayer;
 import net.osmand.plus.views.OsmandMapTileView;
-import android.content.Context;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
 import android.graphics.Bitmap;
@@ -27,8 +26,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.PointF;
-import android.util.DisplayMetrics;
-import android.view.WindowManager;
+import android.widget.ArrayAdapter;
 import android.widget.Toast;
 
 public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvider {
@@ -71,7 +69,7 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 	
 	public int getRadiusPoi(RotatedTileBox tb){
 		int r = 0;
-		if(tb.getZoom() + tb.getZoomScale()  < startZoom){
+		if(tb.getZoom()  < startZoom){
 			r = 0;
 		} else {
 			r = 15;
@@ -121,13 +119,14 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 			final Recording r = (Recording) o;
 			OnContextMenuClick listener = new ContextMenuAdapter.OnContextMenuClick() {
 				@Override
-				public void onContextMenuClick(int itemId, int pos, boolean isChecked, DialogInterface dialog) {
+				public boolean onContextMenuClick(ArrayAdapter<?> adapter, int itemId, int pos, boolean isChecked) {
 					if (itemId == R.string.recording_context_menu_play ||
 							itemId == R.string.recording_context_menu_show) {
 						plugin.playRecording(view.getContext(), r);
 					} else if (itemId == R.string.recording_context_menu_delete) {
 						deleteRecording(r);
 					}
+					return true;
 				}
 
 

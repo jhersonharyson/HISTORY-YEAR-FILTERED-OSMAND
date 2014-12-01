@@ -33,6 +33,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TabHost;
 import android.widget.TabHost.TabSpec;
@@ -53,10 +54,9 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 	public static final int POI_TAB_INDEX = 0;
 	public static final int ADDRESS_TAB_INDEX = 1;
 	public static final int LOCATION_TAB_INDEX = 2;
-	public static final int HISTORY_TAB_INDEX = 3;
-	public static final int TRANSPORT_TAB_INDEX = 4;
-	
-	public static final String TAB_INDEX_EXTRA = "TAB_INDEX_EXTRA";
+	public static final int FAVORITES_TAB_INDEX = 3;
+	public static final int HISTORY_TAB_INDEX = 4;
+	public static final int TRANSPORT_TAB_INDEX = 5;
 	
 	protected static final int POSITION_CURRENT_LOCATION = 1;
 	protected static final int POSITION_LAST_MAP_VIEW = 2;
@@ -68,6 +68,7 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 	
 	public static final String SEARCH_LAT = "net.osmand.search_lat"; //$NON-NLS-1$
 	public static final String SEARCH_LON = "net.osmand.search_lon"; //$NON-NLS-1$
+	public static final String SHOW_ONLY_ONE_TAB = "SHOW_ONLY_ONE_TAB"; //$NON-NLS-1$
 
 	Button searchPOIButton;
 	private LatLon searchPoint = null;
@@ -79,8 +80,7 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 	private OsmandSettings settings;
 	private TabsAdapter mTabsAdapter;
 	List<WeakReference<Fragment>> fragList = new ArrayList<WeakReference<Fragment>>();
-	
-
+	private boolean showOnlyOneTab;
 	
 	
 	public interface SearchActivityChild {
@@ -106,58 +106,70 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 		getSupportActionBar().setNavigationMode(ActionBar.NAVIGATION_MODE_LIST);
 		setContentView(R.layout.search_main);
 		settings = ((OsmandApplication) getApplication()).getSettings();
+		Integer tab = settings.SEARCH_TAB.get();
+		showOnlyOneTab = getIntent() != null && getIntent().getBooleanExtra(SHOW_ONLY_ONE_TAB, false);
 		getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 		getSupportActionBar().setTitle("");
 //		getSupportActionBar().setTitle(R.string.select_search_position);
-		
-		final TextView tabinfo  = (TextView) findViewById(R.id.textViewADesc);
 
-		TabWidget tabs = (TabWidget) findViewById(android.R.id.tabs);
-		tabs.setBackgroundResource(R.drawable.tab_icon_background);
-		
-        TabHost tabHost = (TabHost)findViewById(android.R.id.tabhost);
-        tabHost.setup();
-
-        ViewPager mViewPager = (ViewPager)findViewById(R.id.pager);
-        mTabsAdapter = new TabsAdapter(this, tabHost, tabinfo, mViewPager);
-        TabSpec poiTab = tabHost.newTabSpec(SEARCH_POI).setIndicator(getTabIndicator(tabHost, R.drawable.tab_search_poi_icon, R.string.poi));
-		mTabsAdapter.addTab(poiTab, SearchPoiFilterActivity.class, null);
-
-		TabSpec addressSpec = tabHost.newTabSpec(SEARCH_ADDRESS).setIndicator(
-				getTabIndicator(tabHost, R.drawable.tab_search_address_icon, R.string.address));
-		mTabsAdapter.addTab(addressSpec, searchOnLine? SearchAddressOnlineFragment.class :   SearchAddressFragment.class, null);
-		// mTabsAdapter.addTab(addressSpec, SearchAddressOnlineActivity.class, null);
-		TabSpec locationTab = tabHost.newTabSpec(SEARCH_LOCATION).setIndicator(getTabIndicator(tabHost, R.drawable.tab_search_location_icon, R.string.search_tabs_location));
-		mTabsAdapter.addTab(locationTab, NavigatePointFragment.class, null); 
-		TabSpec favoriteTab = tabHost.newTabSpec(SEARCH_FAVORITES).setIndicator(getTabIndicator(tabHost, R.drawable.tab_search_favorites_icon, R.string.favorite));
-		mTabsAdapter.addTab(favoriteTab, FavouritesListFragment.class, null); 
-		TabSpec historyTab = tabHost.newTabSpec(SEARCH_HISTORY).setIndicator(getTabIndicator(tabHost, R.drawable.tab_search_history_icon, R.string.history));
-		mTabsAdapter.addTab(historyTab, SearchHistoryFragment.class, null);
-		TabSpec transportTab = tabHost.newTabSpec(SEARCH_TRANSPORT).setIndicator(getTabIndicator(tabHost, R.drawable.tab_search_transport_icon, R.string.transport));
-		mTabsAdapter.addTab(transportTab, SearchTransportFragment.class, null);
-		tabHost.setCurrentTab(POI_TAB_INDEX);
-        if (savedInstanceState != null) {
-            tabHost.setCurrentTabByTag(savedInstanceState.getString("tab"));
-        }
         
+		
+		if (!showOnlyOneTab) {
+			final TextView tabinfo  = (TextView) findViewById(R.id.textViewADesc);
+			TabWidget tabs = (TabWidget) findViewById(android.R.id.tabs);
+			tabs.setBackgroundResource(R.drawable.tab_icon_background);
+			
+	        TabHost tabHost = (TabHost)findViewById(android.R.id.tabhost);
+	        tabHost.setup();
+	        ViewPager mViewPager = (ViewPager)findViewById(R.id.pager);
+			mTabsAdapter = new TabsAdapter(this, tabHost, tabinfo, mViewPager, settings);
+			TabSpec poiTab = tabHost.newTabSpec(SEARCH_POI).setIndicator(
+					getTabIndicator(tabHost, R.drawable.tab_search_poi_icon, R.string.poi));
+			mTabsAdapter.addTab(poiTab, getFragment(POI_TAB_INDEX), null);
+			TabSpec addressSpec = tabHost.newTabSpec(SEARCH_ADDRESS).setIndicator(
+					getTabIndicator(tabHost, R.drawable.tab_search_address_icon, R.string.address));
+			mTabsAdapter.addTab(addressSpec, getFragment(ADDRESS_TAB_INDEX), null);
+
+			TabSpec locationTab = tabHost.newTabSpec(SEARCH_LOCATION).setIndicator(
+					getTabIndicator(tabHost, R.drawable.tab_search_location_icon, R.string.search_tabs_location));
+			mTabsAdapter.addTab(locationTab, getFragment(LOCATION_TAB_INDEX), null);
+			TabSpec favoriteTab = tabHost.newTabSpec(SEARCH_FAVORITES).setIndicator(
+					getTabIndicator(tabHost, R.drawable.tab_search_favorites_icon, R.string.favorite));
+			mTabsAdapter.addTab(favoriteTab, getFragment(FAVORITES_TAB_INDEX), null);
+			TabSpec historyTab = tabHost.newTabSpec(SEARCH_HISTORY).setIndicator(
+					getTabIndicator(tabHost, R.drawable.tab_search_history_icon, R.string.history));
+			mTabsAdapter.addTab(historyTab, getFragment(HISTORY_TAB_INDEX), null);
+			TabSpec transportTab = tabHost.newTabSpec(SEARCH_TRANSPORT).setIndicator(
+					getTabIndicator(tabHost, R.drawable.tab_search_transport_icon, R.string.transport));
+			mTabsAdapter.addTab(transportTab, getFragment(TRANSPORT_TAB_INDEX), null);
+			tabHost.setCurrentTab(tab);
+		} else {
+			FrameLayout fl = new FrameLayout(this);
+			fl.setId(R.id.layout);
+			setContentView(fl);
+			Class<?> cl = getFragment(tab);
+			try {
+				getSupportFragmentManager().beginTransaction().replace(R.id.layout, (Fragment) cl.newInstance()).commit();
+			} catch (InstantiationException e) {
+				throw new IllegalStateException(e);
+			} catch (IllegalAccessException e) {
+				throw new IllegalStateException(e);
+			}
+        }
         setTopSpinner();
 		
 		Log.i("net.osmand", "Start on create " + (System.currentTimeMillis() - t ));
 		
 		Intent intent = getIntent();
-		int tabIndex = 0;
+		OsmandSettings settings = ((OsmandApplication) getApplication()).getSettings();
 		if (intent != null) {
-			if(intent.hasExtra(TAB_INDEX_EXTRA)){
-				tabIndex = intent.getIntExtra(TAB_INDEX_EXTRA, POI_TAB_INDEX);
-				mTabsAdapter.mTabHost.setCurrentTab(tabIndex);
-			}
 			double lat = intent.getDoubleExtra(SEARCH_LAT, 0);
 			double lon = intent.getDoubleExtra(SEARCH_LON, 0);
 			if (lat != 0 || lon != 0) {
 				LatLon l = new LatLon(lat, lon);
 				if(!Algorithms.objectEquals(reqSearchPoint, l)){
 					reqSearchPoint = l;
-					updateSearchPoint(reqSearchPoint, getString(R.string.search_position_fixed), true);
+					updateSearchPoint(reqSearchPoint, getString(R.string.select_search_position) + " ", true);
 				}
 			}
 		}
@@ -169,6 +181,23 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 			}
 		}
     }
+
+	protected Class<?> getFragment(int tab) {
+		if(tab == POI_TAB_INDEX) {
+			return SearchPoiFilterActivity.class;
+		} else if(tab == ADDRESS_TAB_INDEX) {
+			return searchOnLine ? SearchAddressOnlineFragment.class : SearchAddressFragment.class;
+		} else if(tab == LOCATION_TAB_INDEX) {
+			return NavigatePointFragment.class;
+		} else if(tab == HISTORY_TAB_INDEX) {
+			return SearchHistoryFragment.class;
+		} else if(tab == TRANSPORT_TAB_INDEX) {
+			return SearchTransportFragment.class;
+		} else if(tab == FAVORITES_TAB_INDEX) {
+			return FavouritesListFragment.class;
+		}
+		return SearchPoiFilterActivity.class;
+	}
 	
 	@Override
 	public boolean onOptionsItemSelected(com.actionbarsherlock.view.MenuItem item) {
@@ -210,7 +239,7 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 						searchAroundCurrentLocation = false;
 						endSearchCurrentLocation();
 						if (position == POSITION_LAST_MAP_VIEW) {
-							updateSearchPoint(settings.getLastKnownMapLocation(), getString(R.string.search_position_fixed), true);
+							updateSearchPoint(settings.getLastKnownMapLocation(), getString(R.string.select_search_position) + " ", true);
 						} else if (position == POSITION_FAVORITES) {
 							Intent intent = new Intent(SearchActivity.this, FavouritesListActivity.class);
 							intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
@@ -234,7 +263,6 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putString("tab", mTabsAdapter.mTabHost.getCurrentTabTag());
     }
 
 		
@@ -248,7 +276,7 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 			FavouritePoint p = (FavouritePoint) data.getSerializableExtra(FavouritesListFragment.SELECT_FAVORITE_POINT_INTENT_KEY);
 			if (p != null) {
 				LatLon latLon = new LatLon(p.getLatitude(), p.getLongitude());
-				updateSearchPoint(latLon, p.getName(), false);
+				updateSearchPoint(latLon, getString(R.string.select_search_position) + " " + p.getName(), false);
 			}
 		} else if(requestCode == REQUEST_ADDRESS_SELECT && resultCode == SearchAddressFragment.SELECT_ADDRESS_POINT_RESULT_OK){
 			String name = data.getStringExtra(SearchAddressFragment.SELECT_ADDRESS_POINT_INTENT_KEY);
@@ -256,9 +284,9 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 					data.getDoubleExtra(SearchAddressFragment.SELECT_ADDRESS_POINT_LAT, 0), 
 					data.getDoubleExtra(SearchAddressFragment.SELECT_ADDRESS_POINT_LON, 0));
 			if(name != null){
-				updateSearchPoint(latLon, name, false);
+				updateSearchPoint(latLon, getString(R.string.select_search_position) + " " + name, false);
 			} else {
-				updateSearchPoint(latLon, getString(R.string.search_position_fixed), true);
+				updateSearchPoint(latLon, getString(R.string.select_search_position) + " ", true);
 			}
 		}
 	}
@@ -267,7 +295,7 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 	public void updateLocation(net.osmand.Location location){
 		if (location != null) {
 			updateSearchPoint(new LatLon(location.getLatitude(), location.getLongitude()),
-					getString(R.string.search_position_current_location_found), false);
+					getString(R.string.select_search_position) + " " + getString(R.string.search_position_current_location_found), false);
 			if (location.getAccuracy() < 20) {
 				endSearchCurrentLocation();
 			}
@@ -358,7 +386,6 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
 //		mTabsAdapter.notifyDataSetChanged();
 //		mTabsAdapter.mViewPager.invalidate();
 		Intent intent = getIntent();
-		intent.putExtra(TAB_INDEX_EXTRA, ADDRESS_TAB_INDEX);
 		finish();
 		startActivity(intent);
 	}
@@ -382,6 +409,7 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
         private final ViewPager mViewPager;
         private final ArrayList<TabInfo> mTabs = new ArrayList<TabInfo>();
 		private TextView tabInfo;
+		private OsmandSettings osmSettings;
 
         static final class TabInfo {
             private final String tag;
@@ -411,12 +439,13 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
             }
         }
 
-        public TabsAdapter(FragmentActivity activity, TabHost tabHost, TextView tabinfo, ViewPager pager) {
+        public TabsAdapter(FragmentActivity activity, TabHost tabHost, TextView tabinfo, ViewPager pager, OsmandSettings settings) {
             super(activity.getSupportFragmentManager());
             mContext = activity;
             mTabHost = tabHost;
 			tabInfo = tabinfo;
             mViewPager = pager;
+			osmSettings = settings;
             mTabHost.setOnTabChangedListener(this);
             mViewPager.setAdapter(this);
             mViewPager.setOnPageChangeListener(this);
@@ -445,23 +474,24 @@ public class SearchActivity extends SherlockFragmentActivity implements OsmAndLo
         }
 
         @Override
-        public void onTabChanged(String tabId) {
-            int position = mTabHost.getCurrentTab();
-            mViewPager.setCurrentItem(position);
-            if (SEARCH_POI.equals(tabId)) {
+		public void onTabChanged(String tabId) {
+			int position = mTabHost.getCurrentTab();
+			osmSettings.SEARCH_TAB.set(position);
+			mViewPager.setCurrentItem(position);
+			if (SEARCH_POI.equals(tabId)) {
 				tabInfo.setText(R.string.poi_search_desc);
-			} else	if (SEARCH_ADDRESS.equals(tabId)) {
-				tabInfo.setText(searchOnLine? R.string.search_osm_nominatim :  R.string.address_search_desc);
-			} else	if (SEARCH_LOCATION.equals(tabId)) {
+			} else if (SEARCH_ADDRESS.equals(tabId)) {
+				tabInfo.setText(searchOnLine ? R.string.search_osm_nominatim : R.string.address_search_desc);
+			} else if (SEARCH_LOCATION.equals(tabId)) {
 				tabInfo.setText(R.string.navpoint_search_desc);
-			} else	if (SEARCH_TRANSPORT.equals(tabId)) {
+			} else if (SEARCH_TRANSPORT.equals(tabId)) {
 				tabInfo.setText(R.string.transport_search_desc);
-			} else	if (SEARCH_FAVORITES.equals(tabId)) {
+			} else if (SEARCH_FAVORITES.equals(tabId)) {
 				tabInfo.setText(R.string.favourites_search_desc);
-			} else	if (SEARCH_HISTORY.equals(tabId)) {
+			} else if (SEARCH_HISTORY.equals(tabId)) {
 				tabInfo.setText(R.string.history_search_desc);
 			}
-        }
+		}
 
         @Override
         public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
