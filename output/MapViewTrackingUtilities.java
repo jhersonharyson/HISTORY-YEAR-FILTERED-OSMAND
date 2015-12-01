@@ -4,6 +4,7 @@ import java.util.List;
 
 import net.osmand.Location;
 import net.osmand.StateChangedListener;
+import net.osmand.ValueHolder;
 import net.osmand.data.RotatedTileBox;
 import net.osmand.map.IMapLocationListener;
 import net.osmand.plus.OsmAndConstants;
@@ -15,6 +16,9 @@ import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.OsmandSettings.AutoZoomMap;
 import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper.TargetPoint;
+import net.osmand.plus.activities.MapActivity;
+import net.osmand.plus.dashboard.DashboardOnMap;
+import net.osmand.plus.mapcontextmenu.MapContextMenu;
 import net.osmand.plus.routing.RoutingHelper;
 import net.osmand.plus.routing.RoutingHelper.IRouteInformationListener;
 import net.osmand.plus.views.AnimateDraggingMapThread;
@@ -29,14 +33,16 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 	private long lastTimeAutoZooming = 0;
 	private boolean sensorRegistered = false;
 	private OsmandMapTileView mapView;
+	private DashboardOnMap dashboard;
+	private MapContextMenu contextMenu;
 	private OsmandSettings settings;
 	private OsmandApplication app;
-	// by default turn off causing unexpected movements due to network establishing
-	private boolean isMapLinkedToLocation = false;
+	private boolean isMapLinkedToLocation = true;
 	private boolean followingMode;
 	private boolean routePlanningMode;
 	private boolean showViewAngle = false;
 	private boolean isUserZoomed = false;
+	private String locationProvider;
 
 	public MapViewTrackingUtilities(OsmandApplication app){
 		this.app = app;
@@ -68,7 +74,11 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 			mapView.setMapLocationListener(this);
 		}
 	}
-	
+
+	public String getLocationProvider() {
+		return locationProvider;
+	}
+
 	@Override
 	public void updateCompassValue(float val) {
 		if (mapView != null) {
@@ -80,11 +90,28 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 				mapView.refreshMap();
 			}
 		}
+		if(dashboard != null) {
+			dashboard.updateCompassValue(val);
+		}
+		if(contextMenu != null) {
+			contextMenu.updateCompassValue(val);
+		}
 	}
 	
+	public void setDashboard(DashboardOnMap dashboard) {
+		this.dashboard = dashboard;
+	}
+
+	public void setContextMenu(MapContextMenu contextMenu) {
+		this.contextMenu = contextMenu;
+	}
+
 	@Override
 	public void updateLocation(Location location) {
 		showViewAngle = false;
+		if (location != null) {
+			locationProvider = location.getProvider();
+		}
 		if (mapView != null) {
 			RotatedTileBox tb = mapView.getCurrentRotatedTileBox();
 			if (isMapLinkedToLocation() && location != null) {
@@ -121,6 +148,13 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 			// When location is changed we need to refresh map in order to show movement!
 			mapView.refreshMap();
 		}
+
+		if(dashboard != null) {
+			dashboard.updateMyLocation(location);
+		}
+		if(contextMenu != null) {
+			contextMenu.updateMyLocation(location);
+		}
 	}
 
 	private boolean isSmallSpeedForCompass(Location location) {
@@ -129,7 +163,6 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 	
 	
 	public boolean isShowViewAngle() {
-		
 		return showViewAngle;
 	}
 	
@@ -158,8 +191,9 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 	}
 	
 	private void registerUnregisterSensor(net.osmand.Location location) {
+
 		int currentMapRotation = settings.ROTATE_MAP.get();
-		boolean registerCompassListener = (showViewAngle && location != null)
+		boolean registerCompassListener = ((showViewAngle || contextMenu != null) && location != null)
 				|| (currentMapRotation == OsmandSettings.ROTATE_MAP_COMPASS && !routePlanningMode);
 		// show point view only if gps enabled
 		if(sensorRegistered != registerCompassListener) {
@@ -197,19 +231,19 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 					// decrease a bit
 					zdelta += 1;
 				}
+				double targetZoom = Math.min(tb.getZoom() + tb.getZoomFloatPart() + zdelta, settings.AUTO_ZOOM_MAP.get().maxZoom); 
 				int threshold = settings.AUTO_FOLLOW_ROUTE.get();
 				if (now - lastTimeAutoZooming > 4500 && (now - lastTimeAutoZooming > threshold || !isUserZoomed)) {
 					isUserZoomed = false;
 					lastTimeAutoZooming = now;
-					double settingsZoomScale = Math.log(mapView.getSettingsMapDensity()) / Math.log(2.0f);
-					double zoomScale = Math.log(tb.getMapDensity()) / Math.log(2.0f);
-					double complexZoom = tb.getZoom() + zoomScale + zdelta;
+//					double settingsZoomScale = Math.log(mapView.getSettingsMapDensity()) / Math.log(2.0f);
+//					double zoomScale = Math.log(tb.getMapDensity()) / Math.log(2.0f);
+//					double complexZoom = tb.getZoom() + zoomScale + zdelta;
 					// round to 0.33
-					double newZoom = Math.round((complexZoom - settingsZoomScale) * 3) / 3f;
-					int newIntegerZoom = (int)Math.round(newZoom);
-					double nzscale = newZoom - newIntegerZoom + settingsZoomScale;
-					mapView.setComplexZoom(newIntegerZoom, Math.pow(2, nzscale));
-					// mapView.getAnimatedDraggingThread().startZooming(mapView.getFloatZoom() + zdelta, false);
+					targetZoom = Math.round(targetZoom * 3) / 3f;
+					int newIntegerZoom = (int)Math.round(targetZoom);
+					double zPart = targetZoom - newIntegerZoom;
+					 mapView.getAnimatedDraggingThread().startZooming(newIntegerZoom, zPart, false);
 				}
 			}
 		}
@@ -263,9 +297,7 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 	@Override
 	public void locationChanged(double newLatitude, double newLongitude, Object source) {
 		// when user start dragging 
-		if(app.getLocationProvider().getLastKnownLocation() != null){
-			setMapLinkedToLocation(false);
-		}
+		setMapLinkedToLocation(false);
 	}
 	
 	public void switchRotateMapMode(){
@@ -291,7 +323,7 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 	}
 
 	@Override
-	public void newRouteIsCalculated(boolean newRoute) {
+	public void newRouteIsCalculated(boolean newRoute, ValueHolder<Boolean> showToast) {
 		RoutingHelper rh = app.getRoutingHelper();
 		if(newRoute && rh.isRoutePlanningMode() && mapView != null) {
 			RotatedTileBox rt = mapView.getCurrentRotatedTileBox();
@@ -310,9 +342,13 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 					bottom = Math.min(bottom, l.getLatitude());
 				}
 				RotatedTileBox tb = new RotatedTileBox(rt);
-				tb.setPixelDimensions(3 * tb.getPixWidth() / 4, 3 * tb.getPixHeight() / 4);
-				double clat = bottom / 2 + top / 2;
+				
+				tb.setPixelDimensions(5 * tb.getPixWidth() / 6, 5 * tb.getPixHeight() / 6);
+				double clat = 5 * bottom / 4 - top / 4;
 				double clon = left / 2 + right / 2;
+				// TODO for landscape menu
+//				double clat = bottom / 2 + top / 2;
+//				double clon = 5 * left / 4 - right / 4;
 				tb.setLatLonCenter(clat, clon);
 				while(tb.getZoom() >= 7 && (!tb.containsLatLon(top, left) || !tb.containsLatLon(bottom, right))) {
 					tb.setZoom(tb.getZoom() - 1);

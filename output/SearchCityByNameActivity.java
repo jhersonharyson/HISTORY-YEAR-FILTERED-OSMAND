@@ -1,8 +1,13 @@
 package net.osmand.plus.activities.search;
 
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
+import android.os.AsyncTask;
+import android.os.Message;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup.LayoutParams;
+import android.widget.AdapterView;
+import android.widget.Button;
+import android.widget.FrameLayout;
 
 import net.osmand.CollatorStringMatcher;
 import net.osmand.CollatorStringMatcher.StringMatcherMode;
@@ -13,23 +18,29 @@ import net.osmand.data.City.CityType;
 import net.osmand.data.LatLon;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.resources.RegionAddressRepository;
 import net.osmand.util.MapUtils;
-import android.os.AsyncTask;
-import android.os.Message;
-import android.view.Gravity;
-import android.view.View;
-import android.view.ViewGroup.LayoutParams;
-import android.widget.Button;
-import android.widget.FrameLayout;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
 
 public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City> {
 
 	private RegionAddressRepository region;
 	private int searchVillagesMode = -1;
 	private Button searchVillages;
-	
+	private OsmandSettings osmandSettings;
+
+	@Override
+	protected void reset() {
+		//This is really only a "clear input text field", hence do not reset settings here
+		//searchVillagesMode = -1;
+		//osmandSettings.setLastSearchedCity(-1L, "", null);
+		super.reset();
+	}
 
 	@Override
 	protected void addFooterViews() {
@@ -54,11 +65,10 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 	
 	@Override
 	protected Comparator<? super City> createComparator() {
-		final boolean en = getMyApplication().getSettings().usingEnglishNames();
 		final StringMatcherMode startsWith = CollatorStringMatcher.StringMatcherMode.CHECK_ONLY_STARTS_WITH;
-		return new CityComparator(startsWith, en);
+		return new CityComparator(startsWith, getMyApplication().getSettings().MAP_PREFERRED_LOCALE.get());
 	}
-	
+
 	@Override
 	public AsyncTask<Object, ?, ?> getInitializeTask() {
 		return new AsyncTask<Object, City, List<City>>(){
@@ -147,48 +157,59 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 	public String getText(City obj) {
 		LatLon l = obj.getLocation();
 		if (getCurrentFilter().length() > 2 ) {
-			String name = obj.getName(region.useEnglishNames());
-			if (obj.getType() != null) {
-				name += " [" + OsmAndFormatter.toPublicString(obj.getType(), getMyApplication()) + "]";
-			}
+			String name = getShortText(obj);
 			if(obj.getClosestCity() != null) {
-				name += " - " + obj.getClosestCity().getName(region.useEnglishNames()) ;
+				name += " - " + obj.getClosestCity().getName(region.getLang()) ;
 				LatLon loc = obj.getClosestCity().getLocation();
 				if(loc != null && l != null) {
 					name += " " + OsmAndFormatter.getFormattedDistance((int) MapUtils.getDistance(l, loc), getMyApplication()); 
 				}
 				return name;
+			} else {
+				if (obj.getType() != null) {
+					name += " - " + OsmAndFormatter.toPublicString(obj.getType(), getMyApplication());
+				}
 			}
 			return name;
 		} else {
-			return obj.getName(region.useEnglishNames());
+			return getShortText(obj);
 		}
 	}
 	
 	@Override
 	public String getShortText(City obj) {
-		return obj.getName(region.useEnglishNames());
+		String lName = obj.getName(region.getLang());
+		String name = obj.getName();
+		if(!lName.equals(name)) {
+			return lName + " / " + name;
+		}
+		return lName;
 	}
 	
 	@Override
 	public void itemSelected(City obj) {
-		settings.setLastSearchedCity(obj.getId(), obj.getName(region.useEnglishNames()), obj.getLocation());
-		if (region.getCityById(obj.getId(), obj.getName(region.useEnglishNames())) == null) {
-			region.addCityToPreloadedList((City) obj);
+		settings.setLastSearchedCity(obj.getId(), obj.getName(region.getLang()), obj.getLocation());
+		if (region.getCityById(obj.getId(), obj.getName(region.getLang())) == null) {
+			region.addCityToPreloadedList(obj);
 		}
 		quitActivity(SearchStreetByNameActivity.class);
 	}
-	
+
+	@Override
+	public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+
+	}
+
 	private final class CityComparator implements Comparator<City> {
 		private final StringMatcherMode startsWith;
 		private final net.osmand.Collator cs;
-		private final boolean en;
+		private final String lang ;
 
 		private CityComparator(StringMatcherMode startsWith, 
-				boolean en) {
+				String lang ) {
 			this.startsWith = startsWith;
 			this.cs = OsmAndCollator.primaryCollator();
-			this.en = en;
+			this.lang = lang;
 		}
 
 		@Override
@@ -199,8 +220,8 @@ public class SearchCityByNameActivity extends SearchByNameAbstractActivity<City>
 			if (compare != 0) {
 				return compare;
 			}
-			boolean st1 = CollatorStringMatcher.cmatches(cs, lhs.getName(en), part, startsWith);
-			boolean st2 = CollatorStringMatcher.cmatches(cs, rhs.getName(en), part, startsWith);
+			boolean st1 = CollatorStringMatcher.cmatches(cs, lhs.getName(lang), part, startsWith);
+			boolean st2 = CollatorStringMatcher.cmatches(cs, rhs.getName(lang), part, startsWith);
 		    if(st1 != st2) {
 		    	return st1 ? 1 : -1;
 		    }

@@ -1,12 +1,8 @@
 package net.osmand.plus.activities;
 
-import java.text.DecimalFormat;
-import java.text.DecimalFormatSymbols;
-import java.util.Locale;
-import java.util.StringTokenizer;
-
 import net.osmand.PlatformUtil;
 import net.osmand.data.LatLon;
+import net.osmand.data.PointDescription;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper;
@@ -14,14 +10,22 @@ import net.osmand.plus.activities.search.SearchActivity;
 import net.osmand.plus.activities.search.SearchActivity.SearchActivityChild;
 import net.osmand.plus.dialogs.DirectionsDialogs;
 import net.osmand.plus.dialogs.FavoriteDialogs;
+import net.osmand.plus.helpers.AndroidUiHelper;
+import net.osmand.util.Algorithms;
 import net.osmand.util.MapUtils;
 import android.app.Dialog;
 import android.content.Intent;
 import android.location.Location;
 import android.os.Bundle;
+import android.support.v4.app.Fragment;
+import android.support.v4.view.MenuItemCompat;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.MenuItem.OnMenuItemClickListener;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemSelectedListener;
@@ -30,15 +34,10 @@ import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
 
-import com.actionbarsherlock.app.SherlockFragment;
-import com.actionbarsherlock.view.Menu;
-import com.actionbarsherlock.view.MenuInflater;
-import com.actionbarsherlock.view.MenuItem;
-import com.actionbarsherlock.view.MenuItem.OnMenuItemClickListener;
 import com.jwetherell.openmap.common.LatLonPoint;
 import com.jwetherell.openmap.common.UTMPoint;
 
-public class NavigatePointFragment extends SherlockFragment implements SearchActivityChild {
+public class NavigatePointFragment extends Fragment implements SearchActivityChild {
 	int currentFormat = Location.FORMAT_DEGREES;
 	
 	public static final String SEARCH_LAT = SearchActivity.SEARCH_LAT;
@@ -46,25 +45,23 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 	public static final String SEARCH_NORTHING = "NORTHING";
 	public static final String SEARCH_EASTING = "EASTING";
 	public static final String SEARCH_ZONE = "ZONE";
-	private static final int UTM_FORMAT = 3;
 	private static final String SELECTION = "SELECTION";
 	
 
-	private static final int NAVIGATE_TO = 1;
-	private static final int ADD_WAYPOINT = 2;
 	private static final int SHOW_ON_MAP = 3;
-	private static final int ADD_TO_FAVORITE = 4;
 
 	private View view;
 	private LatLon location;
 
+	private OsmandApplication app;
+
 	public View onCreateView(android.view.LayoutInflater inflater, android.view.ViewGroup container, Bundle savedInstanceState) {
-		view = inflater.inflate(R.layout.navigate_point, container, false);
+		view = inflater.inflate(R.layout.search_point, container, false);
 		setHasOptionsMenu(true);
 
 		location = null;
-		OsmandApplication app = (OsmandApplication) getActivity().getApplication();
-		Intent intent = getSherlockActivity().getIntent();
+		app = (OsmandApplication) getActivity().getApplication();
+		Intent intent = getActivity().getIntent();
 		if(intent != null){
 			double lat = intent.getDoubleExtra(SEARCH_LAT, 0);
 			double lon = intent.getDoubleExtra(SEARCH_LON, 0);
@@ -78,9 +75,10 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 		if (location == null) {
 			location = app.getSettings().getLastKnownMapLocation();
 		}
+		currentFormat = app.getSettings().COORDINATES_FORMAT.get();
 		initUI(location.getLatitude(), location.getLongitude());
 		if(savedInstanceState != null && savedInstanceState.containsKey(SEARCH_LAT) && savedInstanceState.containsKey(SEARCH_LON) && 
-				currentFormat != UTM_FORMAT) {
+				currentFormat != PointDescription.UTM_FORMAT) {
 			String lat = savedInstanceState.getString(SEARCH_LAT);
 			String lon = savedInstanceState.getString(SEARCH_LON);
 			if(lat != null && lon != null && lat.length() > 0 && lon.length() > 0) {
@@ -91,7 +89,7 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 			}
 		}
 		return view;
-	};
+	}
 	
 	@Override
 	public void onSaveInstanceState(Bundle outState) {
@@ -107,86 +105,46 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 	
 	
 	@Override
-	public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+	public void onCreateOptionsMenu(Menu onCreate, MenuInflater inflater) {
 		OsmandApplication app = (OsmandApplication) getActivity().getApplication();
+		boolean portrait = AndroidUiHelper.isOrientationPortrait(getActivity());
 		boolean light = app.getSettings().isLightActionBar();
-		com.actionbarsherlock.view.MenuItem menuItem = menu.add(0, NAVIGATE_TO, 0, R.string.context_menu_item_directions_to).setShowAsActionFlags(
-				MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
-		menuItem = menuItem.setIcon(light ? R.drawable.ic_action_gdirections_light : R.drawable.ic_action_gdirections_dark);
-		menuItem.setOnMenuItemClickListener(new OnMenuItemClickListener() {
-			@Override
-			public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
-				select(NAVIGATE_TO);
-				return true;
-			}
-		});
-		TargetPointsHelper targets = app.getTargetPointsHelper();
-		if (targets.getPointToNavigate() != null) {
-			menuItem = menu.add(0, ADD_WAYPOINT, 0, R.string.context_menu_item_intermediate_point).setShowAsActionFlags(
-					MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
-			menuItem = menuItem.setIcon(light ? R.drawable.ic_action_flage_light
-					: R.drawable.ic_action_flage_dark);
-		} else {
-			menuItem = menu.add(0, ADD_WAYPOINT, 0, R.string.context_menu_item_destination_point).setShowAsActionFlags(
-					MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
-			menuItem = menuItem.setIcon(light ? R.drawable.ic_action_flag_light
-					: R.drawable.ic_action_flag_dark);
+		Menu menu = onCreate;
+		if(getActivity() instanceof SearchActivity) {
+			((SearchActivity) getActivity()).getClearToolbar(false);
+			light = false;
 		}
-			menuItem.setOnMenuItemClickListener(new OnMenuItemClickListener() {
-				@Override
-				public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
-					select(ADD_WAYPOINT);
-					return true;
-				}
-			});
-		//}
-		menuItem = menu.add(0, SHOW_ON_MAP, 0, R.string.search_shown_on_map).setShowAsActionFlags(MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
-		menuItem = menuItem.setIcon(light ? R.drawable.ic_action_marker_light : R.drawable.ic_action_marker_dark);
+		MenuItem menuItem = menu.add(0, SHOW_ON_MAP, 0, R.string.shared_string_show_on_map);
+		MenuItemCompat.setShowAsAction(menuItem, MenuItemCompat.SHOW_AS_ACTION_ALWAYS);
+		menuItem = menuItem.setIcon(app.getIconsCache().getIcon(R.drawable.ic_action_marker_dark, light));
 
 		menuItem.setOnMenuItemClickListener(new OnMenuItemClickListener() {
 			@Override
-			public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
+			public boolean onMenuItemClick(MenuItem item) {
 				select(SHOW_ON_MAP);
 				return true;
 			}
 		});
 		
-		menuItem = menu.add(0, ADD_TO_FAVORITE, 0, R.string.add_to_favourite).setShowAsActionFlags(MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
-		menuItem = menuItem.setIcon(light ? R.drawable.ic_action_fav_light : R.drawable.ic_action_fav_dark);
-
-		menuItem.setOnMenuItemClickListener(new OnMenuItemClickListener() {
-			@Override
-			public boolean onMenuItemClick(com.actionbarsherlock.view.MenuItem item) {
-				select(ADD_TO_FAVORITE);
-				return true;
-			}
-		});
 	}
 	
 	@Override
 	public void onResume() {
 		super.onResume();
 
-		//Hardy: onResume() code is needed so that search origin is properly reflected in tab contents when origin has been changed on one tab, then tab is changed to another one.
-		location = null;
 		OsmandApplication app = (OsmandApplication) getActivity().getApplication();
-		//Intent intent = getSherlockActivity().getIntent();
-		//if (intent != null) {
-		//	if (intent.hasExtra(SearchActivity.SEARCH_LAT) && intent.hasExtra(SearchActivity.SEARCH_LON)) {
-		//		double lat = intent.getDoubleExtra(SearchActivity.SEARCH_LAT, 0);
-		//		double lon = intent.getDoubleExtra(SearchActivity.SEARCH_LON, 0);
-		//		if (lat != 0 || lon != 0) {
-		//			location = new LatLon(lat, lon);
-		//		}
-		//	}
-		//}
-		if (location == null && getActivity() instanceof SearchActivity) {
-			location = ((SearchActivity) getActivity()).getSearchPoint();
+
+		LatLon loc = null;
+		if (getActivity() instanceof SearchActivity) {
+			loc = ((SearchActivity) getActivity()).getSearchPoint();
 		}
-		if (location == null) {
-			location = app.getSettings().getLastKnownMapLocation();
+		if (loc == null) {
+			loc = app.getSettings().getLastKnownMapLocation();
 		}
-		locationUpdate(location);
+		if(!Algorithms.objectEquals(loc, location)) {
+			location = loc;
+			locationUpdate(location);
+		}
 	}
 	
 	@Override
@@ -204,13 +162,13 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 	protected void showCurrentFormat(LatLon l) {
 		final EditText latEdit = ((EditText)view.findViewById(R.id.LatitudeEdit));
 		final EditText lonEdit = ((EditText)view.findViewById(R.id.LongitudeEdit));
-		boolean utm = currentFormat == UTM_FORMAT;
+		boolean utm = currentFormat == PointDescription.UTM_FORMAT;
 		view.findViewById(R.id.easting_row).setVisibility(utm ? View.VISIBLE : View.GONE);
 		view.findViewById(R.id.northing_row).setVisibility(utm ? View.VISIBLE : View.GONE);
 		view.findViewById(R.id.zone_row).setVisibility(utm ? View.VISIBLE : View.GONE);
 		view.findViewById(R.id.lat_row).setVisibility(!utm ? View.VISIBLE : View.GONE);
 		view.findViewById(R.id.lon_row).setVisibility(!utm ? View.VISIBLE : View.GONE);
-		if(currentFormat == UTM_FORMAT) {
+		if(currentFormat == PointDescription.UTM_FORMAT) {
 			final EditText northingEdit = ((EditText)view.findViewById(R.id.NorthingEdit));
 			final EditText eastingEdit = ((EditText)view.findViewById(R.id.EastingEdit));
 			final EditText zoneEdit = ((EditText)view.findViewById(R.id.ZoneEdit));
@@ -219,14 +177,14 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 			northingEdit.setText(((long)pnt.northing)+"");
 			eastingEdit.setText(((long)pnt.easting)+"");
 		} else {
-			latEdit.setText(convert(MapUtils.checkLatitude(l.getLatitude()), currentFormat));
-			lonEdit.setText(convert(MapUtils.checkLongitude(l.getLongitude()), currentFormat));
+			latEdit.setText(PointDescription. convert(MapUtils.checkLatitude(l.getLatitude()), currentFormat));
+			lonEdit.setText(PointDescription. convert(MapUtils.checkLongitude(l.getLongitude()), currentFormat));
 		}
 	}
 
 	protected LatLon parseLocation() {
 		LatLon loc ;
-		if(currentFormat == UTM_FORMAT) { 
+		if(currentFormat == PointDescription.UTM_FORMAT) { 
 			double northing = Double.parseDouble(((EditText)view.findViewById(R.id.NorthingEdit)).getText().toString());
 			double easting = Double.parseDouble(((EditText)view.findViewById(R.id.EastingEdit)).getText().toString());
 			String zone = ((EditText)view.findViewById(R.id.ZoneEdit)).getText().toString();
@@ -236,18 +194,17 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 			LatLonPoint ll = upoint.toLatLonPoint();
 			loc = new LatLon(ll.getLatitude(), ll.getLongitude());
 		} else {
-			double lat = convert(((EditText) view.findViewById(R.id.LatitudeEdit)).getText().toString());
-			double lon = convert(((EditText) view.findViewById(R.id.LongitudeEdit)).getText().toString());
+			double lat = PointDescription. convert(((EditText) view.findViewById(R.id.LatitudeEdit)).getText().toString());
+			double lon = PointDescription. convert(((EditText) view.findViewById(R.id.LongitudeEdit)).getText().toString());
 			loc = new LatLon(lat, lon);	
 		}
 		return loc;
 	}
 	
 	public void initUI(double latitude, double longitude){
-		currentFormat = Location.FORMAT_DEGREES;
 		showCurrentFormat(new LatLon(latitude, longitude));
 		final Spinner format = ((Spinner)view.findViewById(R.id.Format));
-		ArrayAdapter<String> adapter = new ArrayAdapter<String>(getSherlockActivity(), android.R.layout.simple_spinner_item, new String[] {
+		ArrayAdapter<String> adapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_spinner_item, new String[] {
 				getString(R.string.navigate_point_format_D),
 				getString(R.string.navigate_point_format_DM),
 				getString(R.string.navigate_point_format_DMS),
@@ -263,21 +220,22 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 				int newFormat = currentFormat;
 				String itm = (String) format.getItemAtPosition(position);
 				if(getString(R.string.navigate_point_format_D).equals(itm)){
-					newFormat = Location.FORMAT_DEGREES;
+					newFormat = PointDescription.FORMAT_DEGREES;
 				} else if(getString(R.string.navigate_point_format_DM).equals(itm)){
-					newFormat = Location.FORMAT_MINUTES;
+					newFormat = PointDescription.FORMAT_MINUTES;
 				} else if(getString(R.string.navigate_point_format_DMS).equals(itm)){
-					newFormat = Location.FORMAT_SECONDS;
-				} else if (position == UTM_FORMAT) {
-					newFormat = UTM_FORMAT;
+					newFormat = PointDescription.FORMAT_SECONDS;
+				} else if (position == PointDescription.UTM_FORMAT) {
+					newFormat = PointDescription.UTM_FORMAT;
 				}
 				try { 
 					LatLon loc = parseLocation();
 					currentFormat = newFormat;
-					((TextView) view.findViewById(R.id.ValidateTextView)).setVisibility(View.INVISIBLE);
+					app.getSettings().COORDINATES_FORMAT.set(currentFormat);
+					view.findViewById(R.id.ValidateTextView).setVisibility(View.INVISIBLE);
 					showCurrentFormat(loc);
 				} catch (RuntimeException e) {
-					((TextView) view.findViewById(R.id.ValidateTextView)).setVisibility(View.VISIBLE);
+					view.findViewById(R.id.ValidateTextView).setVisibility(View.VISIBLE);
 					((TextView) view.findViewById(R.id.ValidateTextView)).setText(R.string.invalid_locations);
 					Log.w(PlatformUtil.TAG, "Convertion failed", e); //$NON-NLS-1$
 				}
@@ -374,142 +332,19 @@ public class NavigatePointFragment extends SherlockFragment implements SearchAct
 			LatLon loc = parseLocation();
 			double lat = loc.getLatitude();
 			double lon = loc.getLongitude();
-			if(mode == ADD_TO_FAVORITE) {
-				Bundle b = new Bundle();
-				Dialog dlg = FavoriteDialogs.createAddFavouriteDialog(getActivity(), b);
-				dlg.show();
-				FavoriteDialogs.prepareAddFavouriteDialog(getActivity(), dlg, b, lat, lon, getString(R.string.point_on_map, lat, lon));
-			} else if (mode == NAVIGATE_TO) {
-				DirectionsDialogs.directionsToDialogAndLaunchMap(getActivity(), lat, lon, getString(R.string.point_on_map, lat, lon));
-			} else if (mode == ADD_WAYPOINT) {
-				DirectionsDialogs.addWaypointDialogAndLaunchMap(getActivity(), lat, lon, getString(R.string.point_on_map, lat, lon));
-			} else if (mode == SHOW_ON_MAP){
+			PointDescription pd = new PointDescription(lat, lon);
+			if (mode == SHOW_ON_MAP){
 				OsmandApplication app = (OsmandApplication) getActivity().getApplication();
 				app.getSettings().setMapLocationToShow(lat, lon, Math.max(12, app.getSettings().getLastKnownMapZoom()),
-						getString(R.string.point_on_map, lat, lon));
+						pd);
 				MapActivity.launchMapActivityMoveToTop(getActivity());
 			}
 			
 		} catch (RuntimeException e) {
-			((TextView) view.findViewById(R.id.ValidateTextView)).setVisibility(View.VISIBLE);
+			view.findViewById(R.id.ValidateTextView).setVisibility(View.VISIBLE);
 			((TextView) view.findViewById(R.id.ValidateTextView)).setText(R.string.invalid_locations);
 			Log.w(PlatformUtil.TAG, "Convertion failed", e); //$NON-NLS-1$
 		}
 	}
 	
-	////////////////////////////////////////////////////////////////////////////
-	// THIS code is copied from Location.convert() in order to change locale
-	// and to fix bug in android implementation : doesn't convert if min = 59.23 or sec = 59.32 or deg=179.3
- 	public static final int FORMAT_DEGREES = 0;
-	public static final int FORMAT_MINUTES = 1;
-	public static final int FORMAT_SECONDS = 2;
-	private static final char DELIM = ':';
-	
-	/**
-     * Converts a String in one of the formats described by
-     * FORMAT_DEGREES, FORMAT_MINUTES, or FORMAT_SECONDS into a
-     * double.
-     *
-     * @throws NullPointerException if coordinate is null
-     * @throws IllegalArgumentException if the coordinate is not
-     * in one of the valid formats.
-     */
-    public static double convert(String coordinate) {
-    	coordinate = coordinate.replace(' ', ':').replace('#', ':').replace(',', '.');
-        if (coordinate == null) {
-            throw new NullPointerException("coordinate");
-        }
-
-        boolean negative = false;
-        if (coordinate.charAt(0) == '-') {
-            coordinate = coordinate.substring(1);
-            negative = true;
-        }
-
-        StringTokenizer st = new StringTokenizer(coordinate, ":");
-        int tokens = st.countTokens();
-        if (tokens < 1) {
-            throw new IllegalArgumentException("coordinate=" + coordinate);
-        }
-        try {
-            String degrees = st.nextToken();
-            double val;
-            if (tokens == 1) {
-                val = Double.parseDouble(degrees);
-                return negative ? -val : val;
-            }
-
-            String minutes = st.nextToken();
-            int deg = Integer.parseInt(degrees);
-            double min;
-            double sec = 0.0;
-
-            if (st.hasMoreTokens()) {
-                min = Integer.parseInt(minutes);
-                String seconds = st.nextToken();
-                sec = Double.parseDouble(seconds);
-            } else {
-                min = Double.parseDouble(minutes);
-            }
-
-            boolean isNegative180 = negative && (deg == 180) &&
-                (min == 0) && (sec == 0);
-
-            // deg must be in [0, 179] except for the case of -180 degrees
-            if ((deg < 0.0) || (deg > 180 && !isNegative180)) {
-                throw new IllegalArgumentException("coordinate=" + coordinate);
-            }
-            if (min < 0 || min > 60d) {
-                throw new IllegalArgumentException("coordinate=" +
-                        coordinate);
-            }
-            if (sec < 0 || sec > 60d) {
-                throw new IllegalArgumentException("coordinate=" +
-                        coordinate);
-            }
-
-            val = deg*3600.0 + min*60.0 + sec;
-            val /= 3600.0;
-            return negative ? -val : val;
-        } catch (NumberFormatException nfe) {
-            throw new IllegalArgumentException("coordinate=" + coordinate);
-        }
-    }
-
-
-	public static String convert(double coordinate, int outputType) {
-		if (coordinate < -180.0 || coordinate > 180.0 || Double.isNaN(coordinate)) {
-			throw new IllegalArgumentException("coordinate=" + coordinate); //$NON-NLS-1$
-		}
-		if ((outputType != FORMAT_DEGREES) && (outputType != FORMAT_MINUTES) && (outputType != FORMAT_SECONDS)) {
-			throw new IllegalArgumentException("outputType=" + outputType); //$NON-NLS-1$
-		}
-
-		StringBuilder sb = new StringBuilder();
-
-		// Handle negative values
-		if (coordinate < 0) {
-			sb.append('-');
-			coordinate = -coordinate;
-		}
-
-		DecimalFormat df = new DecimalFormat("###.#####", new DecimalFormatSymbols(Locale.US)); //$NON-NLS-1$
-		if (outputType == FORMAT_MINUTES || outputType == FORMAT_SECONDS) {
-			int degrees = (int) Math.floor(coordinate);
-			sb.append(degrees);
-			sb.append(DELIM);
-			coordinate -= degrees;
-			coordinate *= 60.0;
-			if (outputType == FORMAT_SECONDS) {
-				int minutes = (int) Math.floor(coordinate);
-				sb.append(minutes);
-				sb.append(DELIM);
-				coordinate -= minutes;
-				coordinate *= 60.0;
-			}
-		}
-		sb.append(df.format(coordinate));
-		return sb.toString();
-	}
-
 }

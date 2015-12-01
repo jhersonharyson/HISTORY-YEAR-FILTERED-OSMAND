@@ -11,22 +11,22 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import net.osmand.Location;
-import net.osmand.ResultMatcher;
 import net.osmand.binary.BinaryMapRouteReaderAdapter.RouteRegion;
 import net.osmand.binary.BinaryMapRouteReaderAdapter.RouteTypeRule;
 import net.osmand.binary.RouteDataObject;
 import net.osmand.data.Amenity;
 import net.osmand.data.Amenity.AmenityRoutePoint;
 import net.osmand.data.LocationPoint;
-import net.osmand.osm.MapRenderingTypes;
+import net.osmand.data.PointDescription;
+import net.osmand.osm.PoiType;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.R;
 import net.osmand.plus.OsmandSettings.MetricsConstants;
-import net.osmand.plus.PoiFilter;
+import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper.TargetPoint;
 import net.osmand.plus.activities.IntermediatePointsDialog;
 import net.osmand.plus.base.FavoriteImageDrawable;
+import net.osmand.plus.poi.PoiUIFilter;
 import net.osmand.plus.render.RenderingIcons;
 import net.osmand.plus.routing.AlarmInfo;
 import net.osmand.plus.routing.AlarmInfo.AlarmInfoType;
@@ -48,6 +48,10 @@ public class WaypointHelper {
 	private static final int LONG_ANNOUNCE_RADIUS = 700;
 	private static final int SHORT_ANNOUNCE_RADIUS = 150;
 	private static final int ALARMS_ANNOUNCE_RADIUS = 150;
+	
+	// don't annoy users by lots of announcements
+	private static final int APPROACH_POI_LIMIT = 3;
+	private static final int ANNOUNCE_POI_LIMIT = 3;
 
 	OsmandApplication app;
 	// every time we modify this collection, we change the reference (copy on write list)
@@ -173,14 +177,12 @@ public class WaypointHelper {
 				LocationPointWrapper lwp = lp.get(kIterator);
 				if (lp.get(kIterator).routeIndex < route.getCurrentRoute()) {
 					// skip
-				} else if (route.getDistanceToPoint(lwp.routeIndex) > LONG_ANNOUNCE_RADIUS / 2) {
-					break;
 				} else {
-					AlarmInfo inf = (AlarmInfo) lwp.point;
 					int d = route.getDistanceToPoint(lwp.routeIndex);
 					if (d > LONG_ANNOUNCE_RADIUS) {
 						break;
 					}
+					AlarmInfo inf = (AlarmInfo) lwp.point;
 					float speed = lastProjection != null && lastProjection.hasSpeed() ? lastProjection.getSpeed() : 0;
 					float time = speed > 0 ? d / speed : Integer.MAX_VALUE;
 					int vl = inf.updateDistanceAndGetPriority(time, d);
@@ -255,7 +257,13 @@ public class WaypointHelper {
 	
 	public AlarmInfo calculateMostImportantAlarm(RouteDataObject ro, Location loc, 
 			MetricsConstants mc, boolean showCameras) {
-		float mxspeed = ro.getMaximumSpeed();
+		boolean direction = true;
+		if(loc.hasBearing()) {
+			double diff = MapUtils.alignAngleDifference(ro.directionRoute(0, true) -  
+					loc.getBearing() / (2 * Math.PI));
+			direction = Math.abs(diff) < Math.PI;
+		}
+		float mxspeed = ro.getMaximumSpeed(direction);
 		float delta = app.getSettings().SPEED_LIMIT_EXCEED.get() / 3.6f;
 		AlarmInfo speedAlarm = createSpeedAlarm(mc, mxspeed, loc, delta);
 		if (speedAlarm != null) {
@@ -327,21 +335,24 @@ public class WaypointHelper {
 								point.getLatitude(), point.getLongitude()) - lwp.getDeviationDistance());
 						Integer state = locationPointsStates.get(point);
 						if (state != null && state.intValue() == ANNOUNCED_ONCE
-								&& getVoiceRouter().isDistanceLess(lastKnownLocation.getSpeed(), d1, SHORT_ANNOUNCE_RADIUS)) {
+								&& getVoiceRouter().isDistanceLess(lastKnownLocation.getSpeed(), d1, SHORT_ANNOUNCE_RADIUS, 0f)) {
 							locationPointsStates.put(point, ANNOUNCED_DONE);
 							announcePoints.add(lwp);
 						} else if (type != ALARMS && (state == null || state == NOT_ANNOUNCED)
-								&& getVoiceRouter().isDistanceLess(lastKnownLocation.getSpeed(), d1, LONG_ANNOUNCE_RADIUS)) {
+								&& getVoiceRouter().isDistanceLess(lastKnownLocation.getSpeed(), d1, LONG_ANNOUNCE_RADIUS, 0f)) {
 							locationPointsStates.put(point, ANNOUNCED_ONCE);
 							approachPoints.add(lwp);
 						} else if (type == ALARMS && (state == null || state == NOT_ANNOUNCED)
-								&& getVoiceRouter().isDistanceLess(lastKnownLocation.getSpeed(), d1, ALARMS_ANNOUNCE_RADIUS)) {
+								&& getVoiceRouter().isDistanceLess(lastKnownLocation.getSpeed(), d1, ALARMS_ANNOUNCE_RADIUS, 0f)) {
 							locationPointsStates.put(point, ANNOUNCED_ONCE);
 							approachPoints.add(lwp);
 						}
 						kIterator++;
 					}
 					if (!announcePoints.isEmpty()) {
+						if(announcePoints.size() > ANNOUNCE_POI_LIMIT) {
+							announcePoints = announcePoints.subList(0, ANNOUNCE_POI_LIMIT);
+						}
 						if (type == WAYPOINTS) {
 							getVoiceRouter().announceWaypoint(announcePoints);
 						} else if (type == POI) {
@@ -353,6 +364,9 @@ public class WaypointHelper {
 						}
 					}
 					if (!approachPoints.isEmpty()) {
+						if(approachPoints.size() > APPROACH_POI_LIMIT) {
+							approachPoints = approachPoints.subList(0, APPROACH_POI_LIMIT);
+						}
 						if (type == WAYPOINTS) {
 							getVoiceRouter().approachWaypoint(lastKnownLocation, approachPoints);
 						} else if (type == POI) {
@@ -513,22 +527,10 @@ public class WaypointHelper {
 
 
 	protected void calculatePoi(RouteCalculationResult route, List<LocationPointWrapper> locationPoints) {
-		PoiFilter pf = getPoiFilter();
+		PoiUIFilter pf = getPoiFilter();
 		if (pf != null) {
 			final List<Location> locs = route.getImmutableAllLocations();
-			List<Amenity> amenities = app.getResourceManager().searchAmenitiesOnThePath(locs, poiSearchDeviationRadius,
-					pf, new ResultMatcher<Amenity>() {
-
-						@Override
-						public boolean publish(Amenity object) {
-							return true;
-						}
-
-						@Override
-						public boolean isCancelled() {
-							return false;
-						}
-					});
+			List<Amenity> amenities = pf.searchAmenitiesOnThePath(locs, poiSearchDeviationRadius);
 			for (Amenity a : amenities) {
 				AmenityRoutePoint rp = a.getRoutePoint();
 				int i = locs.indexOf(rp.pointA);
@@ -592,8 +594,8 @@ public class WaypointHelper {
 
 
 	/// 
-	public PoiFilter getPoiFilter() {
-		return app.getPoiFilters().getFilterById(app.getSettings().getPoiFilterForMap());
+	public PoiUIFilter getPoiFilter() {
+		return app.getPoiFilters().getFilterById(app.getSettings().SELECTED_POI_FILTER_FOR_MAP.get());
 	}
 	public boolean showPOI() {
 		return app.getSettings().SHOW_NEARBY_POI.get();
@@ -665,22 +667,23 @@ public class WaypointHelper {
 		public Drawable getDrawable(Context uiCtx, OsmandApplication app) {
 			if(type == POI) {
 				Amenity amenity = ((AmenityLocationPoint) point).a;
-				StringBuilder tag = new StringBuilder();
-				StringBuilder value = new StringBuilder();
-				MapRenderingTypes.getDefault().getAmenityTagValue(amenity.getType(), amenity.getSubType(),
-						tag, value);
-				if(RenderingIcons.containsBigIcon(tag + "_" + value)) {
-					return uiCtx.getResources().getDrawable(RenderingIcons.getBigIconResourceId(tag + "_" + value));
-				} else if(RenderingIcons.containsBigIcon(value.toString())) {
-					return uiCtx.getResources().getDrawable(RenderingIcons.getBigIconResourceId(value.toString()));
+				PoiType st = amenity.getType().getPoiTypeByKeyName(amenity.getSubType());
+				if (st != null) {
+					if (RenderingIcons.containsBigIcon(st.getIconKeyName())) {
+						return uiCtx.getResources().getDrawable(
+								RenderingIcons.getBigIconResourceId(st.getIconKeyName()));
+					} else if (RenderingIcons.containsBigIcon(st.getOsmTag() + "_" + st.getOsmValue())) {
+						return uiCtx.getResources().getDrawable(
+								RenderingIcons.getBigIconResourceId(st.getOsmTag() + "_" + st.getOsmValue()));
+					}
 				}
 				return null;
 			} else if(type == TARGETS) {
-				return uiCtx.getResources().getDrawable(
-						!((TargetPoint)point).intermediate? R.drawable.list_destination:
-					R.drawable.list_intermediate);
+				int i = !((TargetPoint)point).intermediate? R.drawable.list_destination :
+					R.drawable.list_intermediate;
+				return uiCtx.getResources().getDrawable(i);
 			} else if(type == FAVORITES || type == WAYPOINTS) {
-				return FavoriteImageDrawable.getOrCreate(uiCtx, point.getColor());
+				return FavoriteImageDrawable.getOrCreate(uiCtx, point.getColor(), false);
 			} else if(type == ALARMS) {
 				//assign alarm list icons manually for now
 				if(((AlarmInfo) point).getType().toString() == "SPEED_CAMERA") {
@@ -700,7 +703,7 @@ public class WaypointHelper {
 						return uiCtx.getResources().getDrawable(R.drawable.list_warnings_traffic_calming);
 					}
 				} else if(((AlarmInfo) point).getType().toString() == "TOLL_BOOTH") {
-					return uiCtx.getResources().getDrawable(R.drawable.mx_barrier_toll_booth);
+					return uiCtx.getResources().getDrawable(R.drawable.mx_toll_booth);
 				} else if(((AlarmInfo) point).getType().toString() == "STOP") {
 					return uiCtx.getResources().getDrawable(R.drawable.list_stop);
 				} else if(((AlarmInfo) point).getType().toString() == "PEDESTRIAN") {
@@ -770,9 +773,11 @@ public class WaypointHelper {
 			return a.getLocation().getLongitude();
 		}
 
+		
 		@Override
-		public String getName(Context ctx) {
-			return OsmAndFormatter.getPoiSimpleFormat(a, ctx, app.getSettings().usingEnglishNames());
+		public PointDescription getPointDescription(Context ctx) {
+			return new PointDescription(PointDescription.POINT_TYPE_POI, 
+					OsmAndFormatter.getPoiStringWithoutType(a, app.getSettings().MAP_PREFERRED_LOCALE.get()));
 		}
 
 		@Override

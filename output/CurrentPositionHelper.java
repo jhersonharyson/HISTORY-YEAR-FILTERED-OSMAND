@@ -1,11 +1,20 @@
 package net.osmand.plus;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 
 import net.osmand.Location;
+import net.osmand.ResultMatcher;
+import net.osmand.binary.BinaryMapIndexReader;
+import net.osmand.binary.BinaryMapRouteReaderAdapter.RouteRegion;
+import net.osmand.binary.GeocodingUtilities;
+import net.osmand.binary.GeocodingUtilities.GeocodingResult;
 import net.osmand.binary.RouteDataObject;
-import net.osmand.router.BinaryRoutePlanner.RouteSegment;
+import net.osmand.plus.resources.RegionAddressRepository;
 import net.osmand.router.GeneralRouter.GeneralRouterProfile;
 import net.osmand.router.RoutePlannerFrontEnd;
 import net.osmand.router.RoutingConfiguration;
@@ -16,8 +25,8 @@ public class CurrentPositionHelper {
 	
 	private RouteDataObject lastFound;
 	private Location lastAskedLocation = null;
-	private Thread calculatingThread = null;
 	private RoutingContext ctx;
+	private RoutingContext defCtx;
 	private OsmandApplication app;
 	private ApplicationMode am;
 
@@ -35,65 +44,107 @@ public class CurrentPositionHelper {
 		} else if (am.isDerivedRoutingFrom(ApplicationMode.CAR)) {
 			p = GeneralRouterProfile.CAR;
 		} else {
-			return;
+			p = GeneralRouterProfile.PEDESTRIAN;
 		}
 		RoutingConfiguration cfg = app.getDefaultRoutingConfig().build(p.name().toLowerCase(), 10, 
 				new HashMap<String, String>());
 		ctx = new RoutePlannerFrontEnd(false).buildRoutingContext(cfg, null, app.getResourceManager().getRoutingMapFiles());
-	}
-	
-	public synchronized RouteDataObject runUpdateInThread(double lat, double lon) throws IOException {
-		RoutePlannerFrontEnd rp = new RoutePlannerFrontEnd(false);
-		if (ctx == null || am != app.getSettings().getApplicationMode()) {
-			initCtx(app);
-			if (ctx == null) {
-				return null;
-			}
-		}
-		RouteSegment sg = rp.findRouteSegment(lat, lon, ctx);
-		if (sg == null) {
-			return null;
-		}
-		return sg.getRoad();
-
+		RoutingConfiguration defCfg = app.getDefaultRoutingConfig().build(GeneralRouterProfile.CAR.name().toLowerCase(), 10, 
+				new HashMap<String, String>());
+		defCtx = new RoutePlannerFrontEnd(false).buildRoutingContext(defCfg, null, app.getResourceManager().getRoutingMapFiles());
 	}
 	
 	
-	private void scheduleRouteSegmentFind(final Location loc) {
-		Thread calcThread = calculatingThread;
-		if (calcThread == Thread.currentThread()) {
-			lastFound = runUpdateInThreadCatch(loc.getLatitude(), loc.getLongitude());
-		} else if (loc != null) {
-			if (calcThread == null) {
-				Runnable run = new Runnable() {
-					@Override
-					public void run() {
-						try {
-							lastFound = runUpdateInThreadCatch(loc.getLatitude(), loc.getLongitude());
-							if (lastAskedLocation != loc) {
-								// refresh and run new task if needed
-								getLastKnownRouteSegment(lastAskedLocation);
-							}
-						} finally {
-							calculatingThread = null;
+	
+	
+	private void scheduleRouteSegmentFind(final Location loc, final boolean storeFound, final ResultMatcher<GeocodingResult> geoCoding, final ResultMatcher<RouteDataObject> result) {
+		if (loc != null) {
+			Runnable run = new Runnable() {
+				@Override
+				public void run() {
+					try {
+						final List<GeocodingResult> gr = runUpdateInThread(loc.getLatitude(), loc.getLongitude(), 
+								geoCoding != null);
+						if (storeFound) {
+							lastAskedLocation = loc;
+							lastFound = gr == null || gr.isEmpty() ? null : gr.get(0).point.getRoad();
+						} else if(geoCoding != null) {
+							justifyResult(gr, geoCoding);
+						} else if(result != null) {
+							app.runInUIThread(new Runnable() {
+								@Override
+								public void run() {
+									result.publish(gr == null || gr.isEmpty() ? null : gr.get(0).point.getRoad());
+								}
+							});
 						}
+					} catch (IOException e) {
+						e.printStackTrace();
 					}
-				};
-				calculatingThread = app.getRoutingHelper().startTaskInRouteThreadIfPossible(run);
-			} else if (!calcThread.isAlive()) {
-				calculatingThread = null;
+				}
+			};
+			if (!app.getRoutingHelper().startTaskInRouteThreadIfPossible(run) && result != null) {
+				result.publish(null);
 			}
 		}
-
 	}
 	
-	protected RouteDataObject runUpdateInThreadCatch(double latitude, double longitude) {
-		try {
-			return runUpdateInThread(latitude, longitude);
-		} catch (IOException e) {
-			e.printStackTrace();
-			return null;
+	protected void justifyResult(List<GeocodingResult> res, final ResultMatcher<GeocodingResult> result) {
+		List<GeocodingResult> complete = new ArrayList<>();
+		double minBuildingDistance = 0;
+		for (GeocodingResult r : res) {
+			Collection<RegionAddressRepository> rar = app.getResourceManager().getAddressRepositories();
+			RegionAddressRepository foundRepo = null;
+			for (RegionAddressRepository repo : rar) {
+				BinaryMapIndexReader reader = repo.getFile();
+				for (RouteRegion rb : reader.getRoutingIndexes()) {
+					if (r.regionFP == rb.getFilePointer() && r.regionLen == rb.getLength()) {
+						foundRepo = repo;
+						break;
+					}
+					if (result.isCancelled()) {
+						break;
+					}
+				}
+				if (foundRepo != null || result.isCancelled()) {
+					break;
+				}
+			}
+			if (result.isCancelled()) {
+				break;
+			} else if (foundRepo != null) {
+				List<GeocodingResult> justified = foundRepo.justifyReverseGeocodingSearch(r, minBuildingDistance, result);
+				if (!justified.isEmpty()) {
+					double md = justified.get(0).getDistance();
+					if (minBuildingDistance == 0) {
+						minBuildingDistance = md;
+					} else {
+						minBuildingDistance = Math.min(md, minBuildingDistance);
+					}
+					complete.addAll(justified);
+				}
+			} else {
+				complete.add(r);
+			}
 		}
+		if (result.isCancelled()) {
+			app.runInUIThread(new Runnable() {
+				public void run() {
+					result.publish(null);
+				}
+			});
+			return;
+		}
+		Collections.sort(complete, GeocodingUtilities.DISTANCE_COMPARATOR);
+//		for(GeocodingResult rt : complete) {
+//			System.out.println(rt.toString());
+//		}
+		final GeocodingResult rts = complete.size() > 0 ? complete.get(0) : new GeocodingResult();
+		app.runInUIThread(new Runnable() {
+			public void run() {
+				result.publish(rts);
+			}
+		});
 	}
 
 	private static double getOrthogonalDistance(RouteDataObject r, Location loc){
@@ -115,19 +166,30 @@ public class CurrentPositionHelper {
 		return d;
 	}
 	
+	public void getRouteSegment(Location loc, ResultMatcher<RouteDataObject> result) {
+		scheduleRouteSegmentFind(loc, false, null, result);
+	}
+	
+	public void getGeocodingResult(Location loc, ResultMatcher<GeocodingResult> result) {
+		scheduleRouteSegmentFind(loc, false, result, null);
+	}
+	
 	public RouteDataObject getLastKnownRouteSegment(Location loc) {
-		lastAskedLocation = loc;
+		Location last = lastAskedLocation;
 		RouteDataObject r = lastFound;
 		if (loc == null || loc.getAccuracy() > 50) {
 			return null;
 		}
+		if(last != null && last.distanceTo(loc) < 20) {
+			return r;
+		}
 		if (r == null) {
-			scheduleRouteSegmentFind(loc);
+			scheduleRouteSegmentFind(loc, true, null, null);
 			return null;
 		}
 		double d = getOrthogonalDistance(r, loc);
 		if (d > 25) {
-			scheduleRouteSegmentFind(loc);
+			scheduleRouteSegmentFind(loc, true, null, null);
 		}
 		if (d < 70) {
 			return r;
@@ -135,4 +197,14 @@ public class CurrentPositionHelper {
 		return null;
 	}
 
+	
+	private synchronized List<GeocodingResult> runUpdateInThread(double lat, double lon, boolean geocoding) throws IOException {
+		if (ctx == null || am != app.getSettings().getApplicationMode()) {
+			initCtx(app);
+			if (ctx == null) {
+				return null;
+			}
+		}
+		return new GeocodingUtilities().reverseGeocodingSearch(geocoding ? defCtx : ctx, lat, lon);
+	}
 }

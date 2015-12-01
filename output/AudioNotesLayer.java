@@ -1,24 +1,5 @@
 package net.osmand.plus.audionotes;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import net.osmand.access.AccessibleAlertBuilder;
-import net.osmand.access.AccessibleToast;
-import net.osmand.data.DataTileManager;
-import net.osmand.data.LatLon;
-import net.osmand.data.QuadRect;
-import net.osmand.data.RotatedTileBox;
-import net.osmand.plus.ContextMenuAdapter;
-import net.osmand.plus.ContextMenuAdapter.OnContextMenuClick;
-import net.osmand.plus.R;
-import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.audionotes.AudioVideoNotesPlugin.Recording;
-import net.osmand.plus.views.ContextMenuLayer.IContextMenuProvider;
-import net.osmand.plus.views.OsmandMapLayer;
-import net.osmand.plus.views.OsmandMapTileView;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnClickListener;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -26,8 +7,23 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.PointF;
-import android.widget.ArrayAdapter;
-import android.widget.Toast;
+
+import net.osmand.data.DataTileManager;
+import net.osmand.data.LatLon;
+import net.osmand.data.PointDescription;
+import net.osmand.data.QuadRect;
+import net.osmand.data.QuadTree;
+import net.osmand.data.RotatedTileBox;
+import net.osmand.plus.R;
+import net.osmand.plus.activities.MapActivity;
+import net.osmand.plus.audionotes.AudioVideoNotesPlugin.Recording;
+import net.osmand.plus.views.ContextMenuLayer.IContextMenuProvider;
+import net.osmand.plus.views.OsmandMapLayer;
+import net.osmand.plus.views.OsmandMapTileView;
+import net.osmand.util.Algorithms;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvider {
 
@@ -41,6 +37,7 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 	private Bitmap audio;
 	private Bitmap video;
 	private Bitmap photo;
+	private Bitmap pointSmall;
 
 	public AudioNotesLayer(MapActivity activity, AudioVideoNotesPlugin plugin) {
 		this.activity = activity;
@@ -58,6 +55,8 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 		audio = BitmapFactory.decodeResource(view.getResources(), R.drawable.map_note_audio);
 		video = BitmapFactory.decodeResource(view.getResources(), R.drawable.map_note_video);
 		photo = BitmapFactory.decodeResource(view.getResources(), R.drawable.map_note_photo);
+
+		pointSmall = BitmapFactory.decodeResource(view.getResources(), R.drawable.map_note_small);
 
 		paintIcon = new Paint();
 
@@ -84,12 +83,26 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 	@Override
 	public void onPrepareBufferImage(Canvas canvas, RotatedTileBox tileBox, DrawSettings settings) {
 		if (tileBox.getZoom() >= startZoom) {
+			float iconSize = audio.getWidth() * 3 / 2.5f;
+			QuadTree<QuadRect> boundIntersections = initBoundIntersections(tileBox);
+
 			DataTileManager<Recording> recs = plugin.getRecordings();
 			final QuadRect latlon = tileBox.getLatLonBounds();
-			List<Recording> objects = recs.getObjects(latlon. top, latlon.left, latlon.bottom, latlon.right);
+			List<Recording> objects = recs.getObjects(latlon.top, latlon.left, latlon.bottom, latlon.right);
+			List<Recording> fullObjects = new ArrayList<>();
 			for (Recording o : objects) {
-				int x = (int) tileBox.getPixXFromLatLon(o.getLatitude(), o.getLongitude());
-				int y = (int) tileBox.getPixYFromLatLon(o.getLatitude(), o.getLongitude());
+				float x = tileBox.getPixXFromLatLon(o.getLatitude(), o.getLongitude());
+				float y = tileBox.getPixYFromLatLon(o.getLatitude(), o.getLongitude());
+
+				if (intersects(boundIntersections, x, y, iconSize, iconSize)) {
+					canvas.drawBitmap(pointSmall, x - pointSmall.getWidth() / 2, y - pointSmall.getHeight() / 2, paintIcon);
+				} else {
+					fullObjects.add(o);
+				}
+			}
+			for (Recording o : fullObjects) {
+				float x = tileBox.getPixXFromLatLon(o.getLatitude(), o.getLongitude());
+				float y = tileBox.getPixYFromLatLon(o.getLatitude(), o.getLongitude());
 				Bitmap b;
 				if (o.isPhoto()) {
 					b = photo;
@@ -97,9 +110,8 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 					b = audio;
 				} else {
 					b = video;
-
 				}
-				canvas.drawBitmap(b, x - b.getWidth() / 2, y - b.getHeight(), paintIcon);
+				canvas.drawBitmap(b, x - b.getWidth() / 2, y - b.getHeight() / 2, paintIcon);
 			}
 		}
 	}
@@ -112,51 +124,6 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 	public boolean drawInScreenPixels() {
 		return true;
 	}
-	
-	@Override
-	public void populateObjectContextMenu(Object o, ContextMenuAdapter adapter) {
-		if (o instanceof Recording) {
-			final Recording r = (Recording) o;
-			OnContextMenuClick listener = new ContextMenuAdapter.OnContextMenuClick() {
-				@Override
-				public boolean onContextMenuClick(ArrayAdapter<?> adapter, int itemId, int pos, boolean isChecked) {
-					if (itemId == R.string.recording_context_menu_play ||
-							itemId == R.string.recording_context_menu_show) {
-						plugin.playRecording(view.getContext(), r);
-					} else if (itemId == R.string.recording_context_menu_delete) {
-						deleteRecording(r);
-					}
-					return true;
-				}
-
-
-			};
-			if(r.isPhoto()) {
-				adapter.item(R.string.recording_context_menu_show).icons(
-						R.drawable.ic_action_eye_dark, R.drawable.ic_action_eye_light).listen(listener).reg();
-			} else {
-				adapter.item(R.string.recording_context_menu_play).icons(
-						R.drawable.ic_action_play_dark, R.drawable.ic_action_play_light).listen(listener).reg();
-			}
-			adapter.item(R.string.recording_context_menu_delete).icons(R.drawable.ic_action_delete_dark,
-					R.drawable.ic_action_delete_light).listen(listener).reg();
-		}
-	}
-	
-	private void deleteRecording(final Recording r) {
-		AccessibleAlertBuilder bld = new AccessibleAlertBuilder(activity);
-		bld.setMessage(R.string.recording_delete_confirm);
-		bld.setPositiveButton(R.string.default_buttons_yes, new OnClickListener() {
-			
-			@Override
-			public void onClick(DialogInterface dialog, int which) {
-				plugin.deleteRecording(r);				
-			}
-		});
-		bld.setNegativeButton(R.string.default_buttons_no, null);
-		bld.show();
-		
-	}
 
 	@Override
 	public String getObjectDescription(Object o) {
@@ -167,14 +134,26 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 	}
 	
 	@Override
-	public String getObjectName(Object o) {
+	public PointDescription getObjectName(Object o) {
 		if(o instanceof Recording){
-			if(((Recording)o).name == null) {
-				return view.getResources().getString(R.string.recording_default_name);
+			Recording rec = (Recording) o;
+			String recName = rec.getName(activity, true);
+			if(Algorithms.isEmpty(recName)) {
+				return new PointDescription(rec.getSearchHistoryType(), view.getResources().getString(R.string.recording_default_name));
 			}
-			return ((Recording)o).name; //$NON-NLS-1$
+			return new PointDescription(rec.getSearchHistoryType(), recName);
 		}
 		return null;
+	}
+
+	@Override
+	public boolean disableSingleTap() {
+		return false;
+	}
+
+	@Override
+	public boolean disableLongPressOnMap() {
+		return false;
 	}
 
 	@Override
@@ -199,21 +178,6 @@ public class AudioNotesLayer extends OsmandMapLayer implements IContextMenuProvi
 
 	private boolean calculateBelongs(int ex, int ey, int objx, int objy, int radius) {
 		return Math.abs(objx - ex) <= radius && (ey - objy) <= radius / 2 && (objy - ey) <= 3 * radius ;
-	}
-	
-	@Override
-	public boolean onSingleTap(PointF point, RotatedTileBox tileBox) {
-		ArrayList<Recording> o = new ArrayList<Recording>();
-		getRecordingsFromPoint(point, tileBox, o);
-		if(o.size() > 0){
-			StringBuilder b = new StringBuilder();
-			for(Recording r : o) {
-				b.append(getObjectDescription(r)).append('\n');
-			}
-			AccessibleToast.makeText(activity, b.toString().trim(), Toast.LENGTH_LONG).show();
-			return true;
-		}
-		return false;
 	}
 
 	@Override
