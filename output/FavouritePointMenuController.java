@@ -3,9 +3,11 @@ package net.osmand.plus.mapcontextmenu.controllers;
 import android.graphics.drawable.Drawable;
 import android.support.v4.app.Fragment;
 
+import net.osmand.data.Amenity;
 import net.osmand.data.FavouritePoint;
+import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
-import net.osmand.plus.OsmandApplication;
+import net.osmand.data.TransportStop;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.base.FavoriteImageDrawable;
@@ -13,13 +15,14 @@ import net.osmand.plus.mapcontextmenu.MenuController;
 import net.osmand.plus.mapcontextmenu.builders.FavouritePointMenuBuilder;
 import net.osmand.plus.mapcontextmenu.editors.FavoritePointEditor;
 import net.osmand.plus.mapcontextmenu.editors.FavoritePointEditorFragment;
+import net.osmand.util.Algorithms;
 
 public class FavouritePointMenuController extends MenuController {
 
 	private FavouritePoint fav;
 
-	public FavouritePointMenuController(OsmandApplication app, MapActivity mapActivity, PointDescription pointDescription, final FavouritePoint fav) {
-		super(new FavouritePointMenuBuilder(app, fav), pointDescription, mapActivity);
+	public FavouritePointMenuController(MapActivity mapActivity, PointDescription pointDescription, final FavouritePoint fav) {
+		super(new FavouritePointMenuBuilder(mapActivity, fav), pointDescription, mapActivity);
 		this.fav = fav;
 	}
 
@@ -31,8 +34,8 @@ public class FavouritePointMenuController extends MenuController {
 	}
 
 	@Override
-	protected int getSupportedMenuStatesPortrait() {
-		return MenuState.HEADER_ONLY | MenuState.HALF_SCREEN | MenuState.FULL_SCREEN;
+	protected Object getObject() {
+		return fav;
 	}
 
 	@Override
@@ -76,8 +79,39 @@ public class FavouritePointMenuController extends MenuController {
 	}
 
 	@Override
+	public int getFavActionStringId() {
+		return R.string.favourites_context_menu_edit;
+	}
+
+	@Override
 	public String getTypeStr() {
 		return fav.getCategory().length() == 0 ?
 				getMapActivity().getString(R.string.shared_string_favorites) : fav.getCategory();
+	}
+
+	private FavouritePointMenuBuilder getBuilder() {
+		return (FavouritePointMenuBuilder) builder;
+	}
+
+	@Override
+	public void addPlainMenuItems(String typeStr, PointDescription pointDescription, LatLon latLon) {
+		if (!Algorithms.isEmpty(fav.getDescription())) {
+			addPlainMenuItem(R.drawable.ic_action_note_dark, fav.getDescription(), true, false, null);
+		}
+		Object originObject = getBuilder().getOriginObject();
+		if (originObject != null) {
+			if (originObject instanceof Amenity) {
+				Amenity amenity = (Amenity) originObject;
+				AmenityMenuController.addPlainMenuItems(amenity, AmenityMenuController.getTypeStr(amenity), builder);
+			} else if (originObject instanceof TransportStop) {
+				TransportStop stop = (TransportStop) originObject;
+				TransportStopController transportStopController =
+						new TransportStopController(getMapActivity(), pointDescription, stop);
+				transportStopController.addPlainMenuItems(builder, latLon);
+				addMyLocationToPlainItems(latLon);
+			}
+		} else {
+			addMyLocationToPlainItems(latLon);
+		}
 	}
 }

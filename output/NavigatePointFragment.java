@@ -1,19 +1,5 @@
 package net.osmand.plus.activities;
 
-import net.osmand.PlatformUtil;
-import net.osmand.data.LatLon;
-import net.osmand.data.PointDescription;
-import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.R;
-import net.osmand.plus.TargetPointsHelper;
-import net.osmand.plus.activities.search.SearchActivity;
-import net.osmand.plus.activities.search.SearchActivity.SearchActivityChild;
-import net.osmand.plus.dialogs.DirectionsDialogs;
-import net.osmand.plus.dialogs.FavoriteDialogs;
-import net.osmand.plus.helpers.AndroidUiHelper;
-import net.osmand.util.Algorithms;
-import net.osmand.util.MapUtils;
-import android.app.Dialog;
 import android.content.Intent;
 import android.location.Location;
 import android.os.Bundle;
@@ -37,16 +23,23 @@ import android.widget.TextView;
 import com.jwetherell.openmap.common.LatLonPoint;
 import com.jwetherell.openmap.common.UTMPoint;
 
+import net.osmand.LocationConvert;
+import net.osmand.PlatformUtil;
+import net.osmand.data.LatLon;
+import net.osmand.data.PointDescription;
+import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.R;
+import net.osmand.plus.activities.search.SearchActivity;
+import net.osmand.plus.activities.search.SearchActivity.SearchActivityChild;
+import net.osmand.plus.helpers.AndroidUiHelper;
+import net.osmand.util.Algorithms;
+import net.osmand.util.MapUtils;
+
 public class NavigatePointFragment extends Fragment implements SearchActivityChild {
 	int currentFormat = Location.FORMAT_DEGREES;
 	
 	public static final String SEARCH_LAT = SearchActivity.SEARCH_LAT;
 	public static final String SEARCH_LON = SearchActivity.SEARCH_LON;
-	public static final String SEARCH_NORTHING = "NORTHING";
-	public static final String SEARCH_EASTING = "EASTING";
-	public static final String SEARCH_ZONE = "ZONE";
-	private static final String SELECTION = "SELECTION";
-	
 
 	private static final int SHOW_ON_MAP = 3;
 
@@ -82,8 +75,6 @@ public class NavigatePointFragment extends Fragment implements SearchActivityChi
 			String lat = savedInstanceState.getString(SEARCH_LAT);
 			String lon = savedInstanceState.getString(SEARCH_LON);
 			if(lat != null && lon != null && lat.length() > 0 && lon.length() > 0) {
-				((Spinner)view.findViewById(R.id.Format)).setSelection(savedInstanceState.getInt(SELECTION, 0));
-				currentFormat = savedInstanceState.getInt(SELECTION, 0);
 				((TextView)view.findViewById(R.id.LatitudeEdit)).setText(lat);
 				((TextView)view.findViewById(R.id.LongitudeEdit)).setText(lon);
 			}
@@ -99,7 +90,6 @@ public class NavigatePointFragment extends Fragment implements SearchActivityChi
 			final TextView lonEdit = ((TextView)view.findViewById(R.id.LongitudeEdit));
 			outState.putString(SEARCH_LAT, latEdit.getText().toString());
 			outState.putString(SEARCH_LON, lonEdit.getText().toString());
-			outState.putInt(SELECTION, ((Spinner)view.findViewById(R.id.Format)).getSelectedItemPosition());
 		}
 	}
 	
@@ -177,14 +167,14 @@ public class NavigatePointFragment extends Fragment implements SearchActivityChi
 			northingEdit.setText(((long)pnt.northing)+"");
 			eastingEdit.setText(((long)pnt.easting)+"");
 		} else {
-			latEdit.setText(PointDescription. convert(MapUtils.checkLatitude(l.getLatitude()), currentFormat));
-			lonEdit.setText(PointDescription. convert(MapUtils.checkLongitude(l.getLongitude()), currentFormat));
+			latEdit.setText(LocationConvert.convert(MapUtils.checkLatitude(l.getLatitude()), currentFormat));
+			lonEdit.setText(LocationConvert.convert(MapUtils.checkLongitude(l.getLongitude()), currentFormat));
 		}
 	}
 
 	protected LatLon parseLocation() {
 		LatLon loc ;
-		if(currentFormat == PointDescription.UTM_FORMAT) { 
+		if(currentFormat == LocationConvert.UTM_FORMAT) { 
 			double northing = Double.parseDouble(((EditText)view.findViewById(R.id.NorthingEdit)).getText().toString());
 			double easting = Double.parseDouble(((EditText)view.findViewById(R.id.EastingEdit)).getText().toString());
 			String zone = ((EditText)view.findViewById(R.id.ZoneEdit)).getText().toString();
@@ -194,8 +184,8 @@ public class NavigatePointFragment extends Fragment implements SearchActivityChi
 			LatLonPoint ll = upoint.toLatLonPoint();
 			loc = new LatLon(ll.getLatitude(), ll.getLongitude());
 		} else {
-			double lat = PointDescription. convert(((EditText) view.findViewById(R.id.LatitudeEdit)).getText().toString());
-			double lon = PointDescription. convert(((EditText) view.findViewById(R.id.LongitudeEdit)).getText().toString());
+			double lat = LocationConvert.convert(((EditText) view.findViewById(R.id.LatitudeEdit)).getText().toString(), true);
+			double lon = LocationConvert.convert(((EditText) view.findViewById(R.id.LongitudeEdit)).getText().toString(), true);
 			loc = new LatLon(lat, lon);	
 		}
 		return loc;
@@ -205,27 +195,27 @@ public class NavigatePointFragment extends Fragment implements SearchActivityChi
 		showCurrentFormat(new LatLon(latitude, longitude));
 		final Spinner format = ((Spinner)view.findViewById(R.id.Format));
 		ArrayAdapter<String> adapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_spinner_item, new String[] {
-				getString(R.string.navigate_point_format_D),
-				getString(R.string.navigate_point_format_DM),
-				getString(R.string.navigate_point_format_DMS),
-				"UTM"
+				PointDescription.formatToHumanString(this.getContext(), PointDescription.FORMAT_DEGREES),
+				PointDescription.formatToHumanString(this.getContext(), PointDescription.FORMAT_MINUTES),
+				PointDescription.formatToHumanString(this.getContext(), PointDescription.FORMAT_SECONDS),
+				PointDescription.formatToHumanString(this.getContext(), PointDescription.UTM_FORMAT),
 		});
 		adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
 		format.setAdapter(adapter);
-		format.setSelection(0);
+		format.setSelection(currentFormat);
 		format.setOnItemSelectedListener(new OnItemSelectedListener() {
 
 			@Override
 			public void onItemSelected(AdapterView<?> parent, View v, int position, long id) {
 				int newFormat = currentFormat;
 				String itm = (String) format.getItemAtPosition(position);
-				if(getString(R.string.navigate_point_format_D).equals(itm)){
+				if (PointDescription.formatToHumanString(NavigatePointFragment.this.getContext(), PointDescription.FORMAT_DEGREES).equals(itm)) {
 					newFormat = PointDescription.FORMAT_DEGREES;
-				} else if(getString(R.string.navigate_point_format_DM).equals(itm)){
+				} else if (PointDescription.formatToHumanString(NavigatePointFragment.this.getContext(), PointDescription.FORMAT_MINUTES).equals(itm)) {
 					newFormat = PointDescription.FORMAT_MINUTES;
-				} else if(getString(R.string.navigate_point_format_DMS).equals(itm)){
+				} else if (PointDescription.formatToHumanString(NavigatePointFragment.this.getContext(), PointDescription.FORMAT_SECONDS).equals(itm)) {
 					newFormat = PointDescription.FORMAT_SECONDS;
-				} else if (position == PointDescription.UTM_FORMAT) {
+				} else if (PointDescription.formatToHumanString(NavigatePointFragment.this.getContext(), PointDescription.UTM_FORMAT).equals(itm)) {
 					newFormat = PointDescription.UTM_FORMAT;
 				}
 				try { 

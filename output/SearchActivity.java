@@ -9,6 +9,7 @@ import java.util.Formatter;
 import java.util.List;
 import java.util.Locale;
 
+import net.osmand.access.AccessibilityAssistant;
 import net.osmand.data.FavouritePoint;
 import net.osmand.data.LatLon;
 import net.osmand.plus.OsmAndLocationProvider;
@@ -26,13 +27,16 @@ import android.app.ActionBar;
 import android.content.Intent;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
+import android.support.v4.view.ViewCompat;
 import android.support.v4.view.ViewPager;
 import android.support.v4.view.ViewPager.OnPageChangeListener;
 import android.support.v7.app.ActionBar.OnNavigationListener;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 
@@ -66,9 +70,10 @@ public class SearchActivity extends TabActivity implements OsmAndLocationListene
 	private OsmandSettings settings;
 	List<WeakReference<Fragment>> fragList = new ArrayList<WeakReference<Fragment>>();
 	private boolean showOnlyOneTab;
-
-
-
+	
+	private AccessibilityAssistant accessibilityAssistant;
+	private View spinnerView;
+	
 	public interface SearchActivityChild {
 		
 		public void locationUpdate(LatLon l);
@@ -82,6 +87,7 @@ public class SearchActivity extends TabActivity implements OsmAndLocationListene
 		long t = System.currentTimeMillis();
  		setContentView(R.layout.tab_content);
 		settings = ((OsmandApplication) getApplication()).getSettings();
+		accessibilityAssistant = new AccessibilityAssistant(this);
 		
 		showOnlyOneTab = getIntent() != null && getIntent().getBooleanExtra(SHOW_ONLY_ONE_TAB, false);
 		getSupportActionBar().setTitle("");
@@ -93,7 +99,7 @@ public class SearchActivity extends TabActivity implements OsmAndLocationListene
 			List<TabItem> mTabs = new ArrayList<TabItem>();
 			mTabs.add(getTabIndicator(R.string.poi, getFragment(POI_TAB_INDEX)));
 			mTabs.add(getTabIndicator(R.string.address, getFragment(ADDRESS_TAB_INDEX)));
-			mTabs.add(getTabIndicator(R.string.search_tabs_location, getFragment(LOCATION_TAB_INDEX)));
+			mTabs.add(getTabIndicator(R.string.shared_string_location, getFragment(LOCATION_TAB_INDEX)));
 			mTabs.add(getTabIndicator(R.string.favorite, getFragment(FAVORITES_TAB_INDEX)));
 			mTabs.add(getTabIndicator(R.string.shared_string_history, getFragment(HISTORY_TAB_INDEX)));
 
@@ -191,13 +197,21 @@ public class SearchActivity extends TabActivity implements OsmAndLocationListene
 		spinnerAdapter = new ArrayAdapter<String>(getSupportActionBar().getThemedContext(), R.layout.spinner_item,
 				new ArrayList<String>(Arrays.asList(new String[]{
 						getString(R.string.search_position_undefined),
-						getString(R.string.search_position_current_location),
+						getString(R.string.shared_string_my_location) + getString(R.string.shared_string_ellipsis),
 						getString(R.string.search_position_map_view),
 						getString(R.string.search_position_favorites),
 						getString(R.string.search_position_address)
 					}))
-				);
+				) {
+					@Override
+					public View getDropDownView(int position, View convertView, ViewGroup parent) {
+						View itemView = super.getDropDownView(position, convertView, parent);
+						ViewCompat.setAccessibilityDelegate(itemView, accessibilityAssistant);
+						return itemView;
+					}
+				};
 		spinnerAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+		spinnerView = LayoutInflater.from(spinnerAdapter.getContext()).inflate(R.layout.spinner_item, null);
         getSupportActionBar().setListNavigationCallbacks(spinnerAdapter, new OnNavigationListener() {
 			
 			@Override
@@ -327,12 +341,18 @@ public class SearchActivity extends TabActivity implements OsmAndLocationListene
 	}
 	
 	public void updateSearchPoint(LatLon searchPoint, String message, boolean showLoc){
-		spinnerAdapter.remove(spinnerAdapter.getItem(0));
-		String suffix = "";
+		String oldState = spinnerAdapter.getItem(0);
+                String newState = message;
 		if(showLoc && searchPoint != null){
-			suffix = formatLatLon(searchPoint);
+			newState += formatLatLon(searchPoint);
 		}
-		spinnerAdapter.insert(message + suffix, 0);
+		if (!oldState.equals(newState)) {
+			if (getSupportActionBar().getSelectedNavigationIndex() != 0) {
+				accessibilityAssistant.lockEvents();
+			}
+			spinnerAdapter.remove(oldState);
+			spinnerAdapter.insert(newState, 0);
+		}
 		this.searchPoint = searchPoint;
 		for(WeakReference<Fragment> ref : fragList) {
 	        Fragment f = ref.get();
@@ -343,6 +363,7 @@ public class SearchActivity extends TabActivity implements OsmAndLocationListene
 	        }
 	    }
 		getSupportActionBar().setSelectedNavigationItem(0);
+		accessibilityAssistant.unlockEvents();
 	}
 	
 	public LatLon getSearchPoint() {

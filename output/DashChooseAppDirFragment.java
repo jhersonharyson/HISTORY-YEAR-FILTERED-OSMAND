@@ -1,5 +1,6 @@
 package net.osmand.plus.dashboard;
 
+import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.Dialog;
@@ -11,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.StatFs;
 import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.support.v7.app.AlertDialog;
@@ -26,11 +28,11 @@ import android.widget.Toast;
 
 import net.osmand.IndexConstants;
 import net.osmand.ValueHolder;
-import net.osmand.access.AccessibleToast;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.ProgressImplementation;
 import net.osmand.plus.R;
+import net.osmand.plus.download.DownloadActivity;
 import net.osmand.util.Algorithms;
 
 import java.io.File;
@@ -66,7 +68,10 @@ public class DashChooseAppDirFragment {
 		private Activity activity;
 		private Fragment fragment;
 		private Dialog dlg;
-		
+
+		private static int typeTemp = -1;
+		private static String selectePathTemp;
+
 		public ChooseAppDirFragment(Activity activity, Fragment f) {
 			this.activity = activity;
 			this.fragment = f;
@@ -75,6 +80,11 @@ public class DashChooseAppDirFragment {
 		public ChooseAppDirFragment(Activity activity, Dialog dlg) {
 			this.activity = activity;
 			this.dlg = dlg;
+		}
+
+		public void setPermissionDenied() {
+			typeTemp = -1;
+			selectePathTemp = null;
 		}
 
 		private String getFreeSpace(File dir) {
@@ -87,8 +97,10 @@ public class DashChooseAppDirFragment {
 		}
 
 		public void updateView() {
-			if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT) {
-				locationPath.setText(R.string.storage_directory_default);
+			if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_INTERNAL_FILE) {
+				locationPath.setText(R.string.storage_directory_internal_app);
+			} else if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT) {
+				locationPath.setText(R.string.storage_directory_shared);
 			} else if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_EXTERNAL_FILE) {
 				locationPath.setText(R.string.storage_directory_external);
 			} else if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_OBB) {
@@ -149,6 +161,7 @@ public class DashChooseAppDirFragment {
 			copyMapsBtn = view.findViewById(R.id.copy_maps);
 			confirmBtn = view.findViewById(R.id.confirm);
 			addListeners();
+			processPermissionGranted();
 			updateView();
 			return view;
 		}
@@ -171,14 +184,12 @@ public class DashChooseAppDirFragment {
 				types.add(OsmandSettings.EXTERNAL_STORAGE_TYPE_SPECIFIED);
 			}
 			File df = settings.getDefaultInternalStorage();
-			if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT || OsmandSettings.isWritable(df)) {
-				if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT) {
-					selected = items.size();
-				}
-				items.add(getString(R.string.storage_directory_default));
-				paths.add(df.getAbsolutePath());
-				types.add(OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT);
+			if (type == OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT) {
+				selected = items.size();
 			}
+			items.add(getString(R.string.storage_directory_shared));
+			paths.add(df.getAbsolutePath());
+			types.add(OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT);
 
 			File[] externals = getMyApplication().getExternalFilesDirs(null);
 			if (externals != null) {
@@ -231,17 +242,44 @@ public class DashChooseAppDirFragment {
 								dialog.dismiss();
 								showOtherDialog();
 							} else {
-								mapsCopied = false;
-								type = types.get(which);
-								selectedFile = new File(paths.get(which));
-								dialog.dismiss();
-								updateView();
 
+								if (types.get(which) == OsmandSettings.EXTERNAL_STORAGE_TYPE_DEFAULT
+										&& !DownloadActivity.hasPermissionToWriteExternalStorage(activity)) {
+
+									typeTemp = types.get(which);
+									selectePathTemp = paths.get(which);
+									dialog.dismiss();
+									if (dlg != null) {
+										dlg.dismiss();
+									}
+
+									ActivityCompat.requestPermissions(activity,
+											new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+											DownloadActivity.PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
+
+								} else {
+									mapsCopied = false;
+									type = types.get(which);
+									selectedFile = new File(paths.get(which));
+									dialog.dismiss();
+									updateView();
+								}
 							}
 						}
 					});
 			editalert.setNegativeButton(R.string.shared_string_dismiss, null);
 			editalert.show();
+		}
+
+		private void processPermissionGranted() {
+			if (typeTemp != -1 && selectePathTemp != null) {
+				mapsCopied = false;
+				type = typeTemp;
+				selectedFile = new File(selectePathTemp);
+
+				typeTemp = -1;
+				selectePathTemp = null;
+			}
 		}
 
 		public void showOtherDialog() {
@@ -292,7 +330,7 @@ public class DashChooseAppDirFragment {
 								mapsCopied = true;
 								getMyApplication().getResourceManager().resetStoreDirectory();
 							} else {
-								AccessibleToast.makeText(activity, R.string.copying_osmand_file_failed,
+								Toast.makeText(activity, R.string.copying_osmand_file_failed,
 										Toast.LENGTH_SHORT).show();
 							}
 							updateView();
@@ -315,6 +353,7 @@ public class DashChooseAppDirFragment {
 						boolean changed = !currentAppFile.getAbsolutePath().equals(selectedFile.getAbsolutePath());
 						getMyApplication().setExternalStorageDirectory(type, selectedFile.getAbsolutePath());
 						if (changed) {
+							successCallback();
 							reloadData();
 						}
 						if (fragment != null && activity instanceof FragmentActivity) {
@@ -322,7 +361,7 @@ public class DashChooseAppDirFragment {
 									.remove(fragment).commit();
 						}
 					} else {
-						AccessibleToast.makeText(activity, R.string.specified_directiory_not_writeable,
+						Toast.makeText(activity, R.string.specified_directiory_not_writeable,
 								Toast.LENGTH_LONG).show();
 					}
 					if(dlg != null) {
@@ -331,6 +370,9 @@ public class DashChooseAppDirFragment {
 				}
 			};
 		}
+
+		// To be implemented by subclass
+		protected void successCallback() {}
 
 		protected void reloadData() {
 			new ReloadData(activity, getMyApplication()).execute((Void) null);
@@ -421,8 +463,12 @@ public class DashChooseAppDirFragment {
 					Toast.makeText(ctx, R.string.shared_string_io_error, Toast.LENGTH_LONG).show();
 				}
 			}
-			if(progress.getDialog().isShowing()) {
-				progress.getDialog().dismiss();
+			try {
+				if (progress.getDialog().isShowing()) {
+					progress.getDialog().dismiss();
+				}
+			} catch (Exception e) {
+				//ignored
 			}
 		}
 		
@@ -499,8 +545,12 @@ public class DashChooseAppDirFragment {
 
 		@Override
 		protected void onPostExecute(Boolean result) {
-			if (progress.getDialog().isShowing()) {
-				progress.getDialog().dismiss();
+			try {
+				if (progress.getDialog().isShowing()) {
+					progress.getDialog().dismiss();
+				}
+			} catch (Exception e) {
+				//ignored
 			}
 		}
 

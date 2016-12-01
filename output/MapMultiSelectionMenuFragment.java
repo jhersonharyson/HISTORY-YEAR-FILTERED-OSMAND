@@ -37,6 +37,7 @@ public class MapMultiSelectionMenuFragment extends Fragment implements AdapterVi
 	private ArrayAdapter<MenuObject> listAdapter;
 	private MapMultiSelectionMenu menu;
 	private boolean dismissing = false;
+	private boolean wasDrawerDisabled;
 
 	@Nullable
 	@Override
@@ -72,6 +73,23 @@ public class MapMultiSelectionMenuFragment extends Fragment implements AdapterVi
 	}
 
 	@Override
+	public void onResume() {
+		super.onResume();
+		wasDrawerDisabled = menu.getMapActivity().isDrawerDisabled();
+		if (!wasDrawerDisabled) {
+			menu.getMapActivity().disableDrawer();
+		}
+	}
+
+	@Override
+	public void onPause() {
+		super.onPause();
+		if (!wasDrawerDisabled) {
+			menu.getMapActivity().enableDrawer();
+		}
+	}
+
+	@Override
 	public void onStop() {
 		super.onStop();
 		if (!dismissing) {
@@ -82,6 +100,11 @@ public class MapMultiSelectionMenuFragment extends Fragment implements AdapterVi
 	}
 
 	public static void showInstance(final MapActivity mapActivity) {
+
+		if (mapActivity.isActivityDestroyed()) {
+			return;
+		}
+
 		MapMultiSelectionMenu menu = mapActivity.getContextMenu().getMultiSelectionMenu();
 
 		int slideInAnim = menu.getSlideInAnimation();
@@ -91,7 +114,7 @@ public class MapMultiSelectionMenuFragment extends Fragment implements AdapterVi
 		menu.getMapActivity().getSupportFragmentManager().beginTransaction()
 				.setCustomAnimations(slideInAnim, slideOutAnim, slideInAnim, slideOutAnim)
 				.add(R.id.fragmentContainer, fragment, TAG)
-				.addToBackStack(TAG).commit();
+				.addToBackStack(TAG).commitAllowingStateLoss();
 	}
 
 	private void runLayoutListener() {

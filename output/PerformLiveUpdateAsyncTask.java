@@ -3,22 +3,20 @@ package net.osmand.plus.liveupdates;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
-import android.content.Intent;
 import android.os.AsyncTask;
-import android.widget.Toast;
+import android.support.annotation.NonNull;
 
+import net.osmand.PlatformUtil;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
-import net.osmand.plus.R;
-import net.osmand.plus.activities.LocalIndexInfo;
 import net.osmand.plus.download.AbstractDownloadActivity;
 import net.osmand.plus.download.DownloadActivityType;
 import net.osmand.plus.download.DownloadIndexesThread;
 import net.osmand.plus.download.IndexItem;
 import net.osmand.plus.resources.IncrementalChangesManager;
-import net.osmand.util.Algorithms;
 
-import java.io.File;
+import org.apache.commons.logging.Log;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,27 +24,32 @@ import static net.osmand.plus.liveupdates.LiveUpdatesHelper.preferenceUpdateFreq
 
 public class PerformLiveUpdateAsyncTask
 		extends AsyncTask<String, Object, IncrementalChangesManager.IncrementalUpdateList> {
+	private final static Log LOG = PlatformUtil.getLog(PerformLiveUpdateAsyncTask.class);
+
+	@NonNull
 	private final Context context;
-	private final LocalIndexInfo localIndexInfo;
+	@NonNull
+	private final String localIndexFileName;
 	private final boolean forceUpdate;
 
-	public PerformLiveUpdateAsyncTask(Context context, LocalIndexInfo localIndexInfo,
+	public PerformLiveUpdateAsyncTask(@NonNull Context context,
+									  @NonNull String localIndexFileName,
 									  boolean forceUpdate) {
 		this.context = context;
-		this.localIndexInfo = localIndexInfo;
+		this.localIndexFileName = localIndexFileName;
 		this.forceUpdate = forceUpdate;
 	}
 
 	@Override
 	protected void onPreExecute() {
+		LOG.debug("onPreExecute");
 		if (context instanceof AbstractDownloadActivity) {
 			AbstractDownloadActivity activity = (AbstractDownloadActivity) context;
 			activity.setSupportProgressBarIndeterminateVisibility(true);
-			OsmandSettings settings = activity.getMyApplication().getSettings();
 		}
 		final OsmandApplication myApplication = getMyApplication();
 		OsmandSettings.CommonPreference<Long> lastCheckPreference =
-				LiveUpdatesHelper.preferenceLastCheck(localIndexInfo, myApplication.getSettings());
+				LiveUpdatesHelper.preferenceLastCheck(localIndexFileName, myApplication.getSettings());
 		lastCheckPreference.set(System.currentTimeMillis());
 	}
 
@@ -56,6 +59,7 @@ public class PerformLiveUpdateAsyncTask
 
 	@Override
 	protected IncrementalChangesManager.IncrementalUpdateList doInBackground(String... params) {
+		LOG.debug("doInBackground");
 		final OsmandApplication myApplication = getMyApplication();
 		IncrementalChangesManager cm = myApplication.getResourceManager().getChangesManager();
 		return cm.getUpdatesByMonth(params[0]);
@@ -63,6 +67,7 @@ public class PerformLiveUpdateAsyncTask
 
 	@Override
 	protected void onPostExecute(IncrementalChangesManager.IncrementalUpdateList result) {
+		LOG.debug("onPostExecute");
 		if (context instanceof AbstractDownloadActivity) {
 			AbstractDownloadActivity activity = (AbstractDownloadActivity) context;
 			activity.setSupportProgressBarIndeterminateVisibility(false);
@@ -70,14 +75,12 @@ public class PerformLiveUpdateAsyncTask
 		final OsmandApplication application = getMyApplication();
 		final OsmandSettings settings = application.getSettings();
 		if (result.errorMessage != null) {
-			Toast.makeText(context, result.errorMessage, Toast.LENGTH_SHORT).show();
-			tryRescheduleDownload(context, settings, localIndexInfo);
+			LOG.info(result.errorMessage);
+			tryRescheduleDownload(context, settings, localIndexFileName);
 		} else {
 			settings.LIVE_UPDATES_RETRIES.resetToDefault();
 			List<IncrementalChangesManager.IncrementalUpdate> ll = result.getItemsForUpdate();
-			if (ll.isEmpty()) {
-				Toast.makeText(context, R.string.no_updates_available, Toast.LENGTH_SHORT).show();
-			} else {
+			if (ll != null && !ll.isEmpty()) {
 				ArrayList<IndexItem> itemsToDownload = new ArrayList<>(ll.size());
 				for (IncrementalChangesManager.IncrementalUpdate iu : ll) {
 					IndexItem indexItem = new IndexItem(iu.fileName, "Incremental update",
@@ -90,7 +93,7 @@ public class PerformLiveUpdateAsyncTask
 					downloadThread.setUiActivity((DownloadIndexesThread.DownloadEvents) context);
 				}
 				boolean downloadViaWiFi =
-						LiveUpdatesHelper.preferenceDownloadViaWiFi(localIndexInfo, settings).get();
+						LiveUpdatesHelper.preferenceDownloadViaWiFi(localIndexFileName, settings).get();
 				if (getMyApplication().getSettings().isInternetConnectionAvailable()) {
 					if (forceUpdate || settings.isWifiConnected() || !downloadViaWiFi) {
 						long szLong = 0;
@@ -116,14 +119,19 @@ public class PerformLiveUpdateAsyncTask
 						}
 					}
 				}
+			} else {
+				if (context instanceof DownloadIndexesThread.DownloadEvents) {
+					((DownloadIndexesThread.DownloadEvents) context).downloadInProgress();
+				}
 			}
 		}
 	}
 
-	public static void tryRescheduleDownload(Context context, OsmandSettings settings,
-											  LocalIndexInfo localIndexInfo) {
+	public static void tryRescheduleDownload(@NonNull Context context,
+											 @NonNull OsmandSettings settings,
+											 @NonNull String localIndexFileName) {
 		final OsmandSettings.CommonPreference<Integer> updateFrequencyPreference =
-				preferenceUpdateFrequency(localIndexInfo, settings);
+				preferenceUpdateFrequency(localIndexFileName, settings);
 		final Integer frequencyOrdinal = updateFrequencyPreference.get();
 		if (LiveUpdatesHelper.UpdateFrequency.values()[frequencyOrdinal]
 				== LiveUpdatesHelper.UpdateFrequency.HOURLY) {
@@ -131,12 +139,7 @@ public class PerformLiveUpdateAsyncTask
 		}
 		final Integer retriesLeft = settings.LIVE_UPDATES_RETRIES.get();
 		if (retriesLeft > 0) {
-			Intent intent = new Intent(context, LiveUpdatesAlarmReceiver.class);
-			final File file = new File(localIndexInfo.getFileName());
-			final String fileName = Algorithms.getFileNameWithoutExtension(file);
-			intent.putExtra(LiveUpdatesHelper.LOCAL_INDEX_INFO, localIndexInfo);
-			intent.setAction(fileName);
-			PendingIntent alarmIntent = PendingIntent.getBroadcast(context, 0, intent, 0);
+			PendingIntent alarmIntent = LiveUpdatesHelper.getPendingIntent(context, localIndexFileName);
 
 			long timeToRetry = System.currentTimeMillis() + AlarmManager.INTERVAL_HOUR;
 

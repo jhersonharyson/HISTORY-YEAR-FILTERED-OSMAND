@@ -1,10 +1,16 @@
 package net.osmand.plus;
 
 import android.app.Activity;
-import android.content.Context;
-import android.graphics.Typeface;
+import android.content.Intent;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
+import android.net.Uri;
+import android.support.annotation.ColorRes;
+import android.support.annotation.DrawableRes;
+import android.support.annotation.IdRes;
+import android.support.annotation.LayoutRes;
+import android.support.v4.app.FragmentActivity;
+import android.support.v7.widget.AppCompatImageView;
+import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -12,12 +18,15 @@ import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import net.osmand.AndroidUtils;
 import net.osmand.PlatformUtil;
+import net.osmand.plus.activities.HelpActivity;
 import net.osmand.plus.activities.actions.AppModeDialog;
 import net.osmand.plus.dialogs.ConfigureMapMenu;
+import net.osmand.plus.dialogs.HelpArticleDialogFragment;
 
 import org.apache.commons.logging.Log;
 
@@ -26,275 +35,44 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-import gnu.trove.list.array.TIntArrayList;
-
 public class ContextMenuAdapter {
 	private static final Log LOG = PlatformUtil.getLog(ContextMenuAdapter.class);
 
-
-	public interface OnContextMenuClick {
-		//boolean return type needed to desribe if drawer needed to be close or not
-		public boolean onContextMenuClick(ArrayAdapter<?> adapter, int itemId, int pos, boolean isChecked);
-	}
-
-	public static abstract class OnRowItemClick implements OnContextMenuClick {
-
-		public OnRowItemClick() {
-		}
-
-		//boolean return type needed to desribe if drawer needed to be close or not
-		public boolean onRowItemClick(ArrayAdapter<?> adapter, View view, int itemId, int pos) {
-			CompoundButton btn = (CompoundButton) view.findViewById(R.id.check_item);
-			if (btn != null && btn.getVisibility() == View.VISIBLE) {
-				btn.setChecked(!btn.isChecked());
-				return false;
-			} else {
-				return onContextMenuClick(adapter, itemId, pos, false);
-			}
-		}
-	}
-
-	public class BooleanResult {
-		private boolean result = false;
-
-		public void setResult(boolean value) {
-			result = value;
-		}
-
-		public boolean getResult() {
-			return result;
-		}
-	}
-
-	private final Context ctx;
-	private View anchor;
-	private int defaultLayoutId = Build.VERSION.SDK_INT < Build.VERSION_CODES.HONEYCOMB ?
-			R.layout.list_menu_item : R.layout.list_menu_item_native;
-	final TIntArrayList items = new TIntArrayList();
-	final TIntArrayList isCategory = new TIntArrayList();
-	final ArrayList<String> itemNames = new ArrayList<String>();
-	final ArrayList<OnContextMenuClick> checkListeners = new ArrayList<ContextMenuAdapter.OnContextMenuClick>();
-	final TIntArrayList selectedList = new TIntArrayList();
-	final TIntArrayList loadingList = new TIntArrayList();
-	final TIntArrayList layoutIds = new TIntArrayList();
-	final TIntArrayList iconList = new TIntArrayList();
-	final TIntArrayList iconListLight = new TIntArrayList();
-	final ArrayList<String> itemDescription = new ArrayList<String>();
-	private List<ApplicationMode> visibleModes = new ArrayList<ApplicationMode>();
+	@LayoutRes
+	private int DEFAULT_LAYOUT_ID = R.layout.list_menu_item_native;
+	List<ContextMenuItem> items = new ArrayList<>();
 	private ConfigureMapMenu.OnClickListener changeAppModeListener = null;
-	//neded to detect whether user opened all modes or not
-	private BooleanResult allModes = new BooleanResult();
-
-	public ContextMenuAdapter(Context ctx, boolean allModes) {
-		this.ctx = ctx;
-		this.allModes.setResult(allModes);
-	}
-
-	public ContextMenuAdapter(Context ctx) {
-		this.ctx = ctx;
-	}
-
-	public void setAnchor(View anchor) {
-		this.anchor = anchor;
-	}
-
-	public View getAnchor() {
-		return anchor;
-	}
 
 	public int length() {
 		return items.size();
 	}
 
-	public int getElementId(int pos) {
-		return items.get(pos);
-	}
-
-	public OnContextMenuClick getClickAdapter(int i) {
-		return checkListeners.get(i);
-	}
-
-	public String getItemName(int pos) {
-		return itemNames.get(pos);
-	}
-
-	public String getItemDescr(int pos) {
-		return itemDescription.get(pos);
-	}
-
-	public void setItemName(int pos, String str) {
-		itemNames.set(pos, str);
-	}
-
-	public void setItemDescription(int pos, String str) {
-		itemDescription.set(pos, str);
-	}
-
-	public int getSelection(int pos) {
-		return selectedList.get(pos);
-	}
-
-	public int getLoading(int pos) {
-		return loadingList.get(pos);
-	}
-
-	public void setSelection(int pos, int s) {
-		selectedList.set(pos, s);
-	}
-
-
-	public Drawable getImage(OsmandApplication ctx, int pos, boolean light) {
-		int lst = iconList.get(pos);
-		if (lst != 0) {
-			return ctx.getResources().getDrawable(lst);
-		}
-		int lstLight = iconListLight.get(pos);
-		if (lstLight != 0) {
-			return ctx.getIconsCache().getIcon(lstLight, light);
-		}
-		return null;
-	}
-
-	public int getBackgroundColor(Context ctx, boolean holoLight) {
-		if (holoLight) {
-			return ctx.getResources().getColor(R.color.bg_color_light);
-		} else {
-			return ctx.getResources().getColor(R.color.bg_color_dark);
-		}
-	}
-
-
-	public boolean isCategory(int pos) {
-		return isCategory.get(pos) > 0;
-	}
-
-	public Item item(String name) {
-		Item i = new Item();
-		i.id = (name.hashCode() << 4) | items.size();
-		i.name = name;
-		return i;
-	}
-	
-
-	public Item item(int resId) {
-		Item i = new Item();
-		i.id = resId;
-		i.name = ctx.getString(resId);
-		return i;
-	}
-
-	public class Item {
-		int icon = 0;
-		int lightIcon = 0;
-		int id;
-		String name;
-		int selected = -1;
-		int layout = -1;
-		int loading = -1;
-		boolean cat;
-		int pos = -1;
-		String description = "";
-		private OnContextMenuClick checkBoxListener;
-
-		private Item() {
-		}
-
-		public Item icon(int icon) {
-			this.icon = icon;
-			return this;
-		}
-
-		public Item iconColor(int icon) {
-			this.lightIcon = icon;
-			return this;
-		}
-		
-
-		public Item position(int pos) {
-			this.pos = pos;
-			return this;
-		}
-
-		public Item selected(int selected) {
-			this.selected = selected;
-			return this;
-		}
-
-		public Item loading(int loading) {
-			this.loading = loading;
-			return this;
-		}
-
-		public Item layout(int l) {
-			this.layout = l;
-			return this;
-		}
-
-		public Item description(String descr) {
-			this.description = descr;
-			return this;
-		}
-
-		public Item listen(OnContextMenuClick l) {
-			this.checkBoxListener = l;
-			return this;
-		}
-
-		public void reg() {
-			if (pos >= items.size() || pos < 0) {
-				pos = items.size();
-			}
-			items.insert(pos, id);
-			itemNames.add(pos, name);
-			itemDescription.add(pos, description);
-			selectedList.insert(pos, selected);
-			loadingList.insert(pos, loading);
-			layoutIds.insert(pos, layout);
-			iconList.insert(pos, icon);
-			iconListLight.insert(pos, lightIcon);
-			checkListeners.add(pos, checkBoxListener);
-			isCategory.insert(pos, cat ? 1 : 0);
-		}
-
-		public Item setCategory(boolean b) {
-			cat = b;
-			return this;
-		}
-		
-		public Item name(String name) {
-			this.name = name;
-			return this;
-		}
-
-	}
-
 	public String[] getItemNames() {
-		return itemNames.toArray(new String[itemNames.size()]);
-	}
-
-	public void removeItem(int pos) {
-		items.removeAt(pos);
-		itemNames.remove(pos);
-		selectedList.removeAt(pos);
-		iconList.removeAt(pos);
-		iconListLight.removeAt(pos);
-		checkListeners.remove(pos);
-		isCategory.removeAt(pos);
-		layoutIds.removeAt(pos);
-		loadingList.removeAt(pos);
-	}
-
-	public int getLayoutId(int position) {
-		int l = layoutIds.get(position);
-		if (l != -1) {
-			return l;
+		String[] itemNames = new String[items.size()];
+		for (int i = 0; i < items.size(); i++) {
+			itemNames[i] = items.get(i).getTitle();
 		}
-		return defaultLayoutId;
+		return itemNames;
 	}
 
+	public void addItem(ContextMenuItem item) {
+		try {
+			items.add(item.getPos(), item);
+		} catch (IndexOutOfBoundsException ex) {
+			items.add(item);
+		}
+	}
+
+	public ContextMenuItem getItem(int position) {
+		return items.get(position);
+	}
+
+	public void removeItem(int position) {
+		items.remove(position);
+	}
 
 	public void setDefaultLayoutId(int defaultLayoutId) {
-		this.defaultLayoutId = defaultLayoutId;
+		this.DEFAULT_LAYOUT_ID = defaultLayoutId;
 	}
 
 
@@ -303,100 +81,174 @@ public class ContextMenuAdapter {
 	}
 
 
-	public ArrayAdapter<?> createListAdapter(final Activity activity, final boolean holoLight) {
-		final int layoutId = defaultLayoutId;
+	public ArrayAdapter<ContextMenuItem> createListAdapter(final Activity activity, final boolean lightTheme) {
+		final int layoutId = DEFAULT_LAYOUT_ID;
 		final OsmandApplication app = ((OsmandApplication) activity.getApplication());
-		ArrayAdapter<String> listAdapter = new ContextMenuArrayAdapter(activity, layoutId, R.id.title,
-				getItemNames(), app, holoLight);
-		return listAdapter;
+		return new ContextMenuArrayAdapter(activity, layoutId, R.id.title,
+				items.toArray(new ContextMenuItem[items.size()]), app, lightTheme, changeAppModeListener);
 	}
 
-	public class ContextMenuArrayAdapter extends ArrayAdapter<String> {
-		private Activity activity;
+	public class ContextMenuArrayAdapter extends ArrayAdapter<ContextMenuItem> {
 		private OsmandApplication app;
-		private boolean holoLight;
+		private boolean lightTheme;
+		@LayoutRes
 		private int layoutId;
-		public ContextMenuArrayAdapter(Activity context, int resource, int textViewResourceId,
-									   String[] objects, OsmandApplication app, boolean holoLight) {
-			super(context, resource, textViewResourceId, objects);
-			activity = context;
+		private final ConfigureMapMenu.OnClickListener changeAppModeListener;
+		private final IconsCache mIconsCache;
+
+		public ContextMenuArrayAdapter(Activity context,
+									   @LayoutRes int layoutRes,
+									   @IdRes int textViewResourceId,
+									   ContextMenuItem[] objects,
+									   OsmandApplication app,
+									   boolean lightTheme,
+									   ConfigureMapMenu.OnClickListener changeAppModeListener) {
+			super(context, layoutRes, textViewResourceId, objects);
 			this.app = app;
-			this.holoLight = holoLight;
-			layoutId = resource;
+			this.lightTheme = lightTheme;
+			this.layoutId = layoutRes;
+			this.changeAppModeListener = changeAppModeListener;
+			mIconsCache = app.getIconsCache();
+		}
+
+		@Override
+		public boolean isEnabled(int position) {
+			final ContextMenuItem item = getItem(position);
+			if (item != null) {
+				return !item.isCategory() && item.getLayout() != R.layout.drawer_divider;
+			}
+			return true;
 		}
 
 		@Override
 		public View getView(final int position, View convertView, ViewGroup parent) {
 			// User super class to create the View
-			Integer lid = getLayoutId(position);
-			if (lid == R.layout.mode_toggles) {
-				final Set<ApplicationMode> selected = new LinkedHashSet<ApplicationMode>();
-				return AppModeDialog.prepareAppModeDrawerView(activity, visibleModes, selected, allModes, true, new View.OnClickListener() {
+			final ContextMenuItem item = getItem(position);
+			int layoutId = item.getLayout();
+			layoutId = layoutId != ContextMenuItem.INVALID_ID ? layoutId : DEFAULT_LAYOUT_ID;
+			if (layoutId == R.layout.mode_toggles) {
+				final Set<ApplicationMode> selected = new LinkedHashSet<>();
+				return AppModeDialog.prepareAppModeDrawerView((Activity) getContext(),
+						selected, true, new View.OnClickListener() {
+							@Override
+							public void onClick(View view) {
+								if (selected.size() > 0) {
+									app.getSettings().APPLICATION_MODE.set(selected.iterator().next());
+									notifyDataSetChanged();
+								}
+								if (changeAppModeListener != null) {
+									changeAppModeListener.onClick();
+								}
+							}
+						});
+			}
+			if (convertView == null || !(convertView.getTag() instanceof Integer)
+					|| (layoutId != (Integer) convertView.getTag())) {
+				int themeRes = lightTheme ? R.style.OsmandLightTheme : R.style.OsmandDarkTheme;
+				convertView = View.inflate(new ContextThemeWrapper(getContext(), themeRes), layoutId, null);
+				convertView.setTag(layoutId);
+			}
+			if (item.getMinHeight() > 0) {
+				convertView.setMinimumHeight(item.getMinHeight());
+			}
+			if (layoutId == R.layout.help_to_improve_item) {
+				TextView feedbackButton = (TextView) convertView.findViewById(R.id.feedbackButton);
+				Drawable pollIcon = app.getIconsCache().getThemedIcon(R.drawable.ic_action_big_poll);
+				feedbackButton.setCompoundDrawablesWithIntrinsicBounds(null, pollIcon, null, null);
+				feedbackButton.setOnClickListener(new View.OnClickListener() {
 					@Override
-					public void onClick(View view) {
-						if (selected.size() > 0) {
-							app.getSettings().APPLICATION_MODE.set(selected.iterator().next());
-							notifyDataSetChanged();
-						}
-						if (changeAppModeListener != null) {
-							changeAppModeListener.onClick(allModes.getResult());
+					public void onClick(View v) {
+						HelpArticleDialogFragment
+								.instantiateWithUrl(HelpActivity.OSMAND_POLL_HTML, app.getString(R.string.feedback))
+								.show(((FragmentActivity) getContext()).getSupportFragmentManager(), null);
+					}
+				});
+				TextView contactUsButton = (TextView) convertView.findViewById(R.id.contactUsButton);
+				Drawable contactUsIcon =
+						app.getIconsCache().getThemedIcon(R.drawable.ic_action_big_feedback);
+				contactUsButton.setCompoundDrawablesWithIntrinsicBounds(null, contactUsIcon, null,
+						null);
+				final String email = app.getString(R.string.support_email);
+				contactUsButton.setOnClickListener(new View.OnClickListener() {
+					@Override
+					public void onClick(View v) {
+						Intent intent = new Intent(Intent.ACTION_SENDTO);
+						intent.setData(Uri.parse("mailto:")); // only email apps should handle this
+						intent.putExtra(Intent.EXTRA_EMAIL, new String[]{email});
+						if (intent.resolveActivity(app.getPackageManager()) != null) {
+							getContext().startActivity(intent);
 						}
 					}
 				});
+				return convertView;
 			}
-			if (convertView == null || (!lid.equals(convertView.getTag()))) {
-				convertView = activity.getLayoutInflater().inflate(lid, parent, false);
-				convertView.setTag(lid);
-			}
+
 			TextView tv = (TextView) convertView.findViewById(R.id.title);
-			if (!isCategory(position)) {
-				AndroidUtils.setTextPrimaryColor(ctx, tv, !holoLight);
+			if (tv != null) {
+				tv.setText(item.getTitle());
 			}
-			tv.setText(isCategory(position) ? getItemName(position).toUpperCase() : getItemName(position));
 
-			if (layoutId == R.layout.simple_list_menu_item) {
-				int color = activity.getResources()
-						.getColor(holoLight ? R.color.icon_color : R.color.dashboard_subheader_text_dark);
-				Drawable imageId = app.getIconsCache().getPaintedContentIcon(
-						iconListLight.get(position), color);
-				float density = activity.getResources().getDisplayMetrics().density;
-				int paddingInPixels = (int) (24 * density);
-				int drawableSizeInPixels = (int) (24 * density); // 32
-				imageId.setBounds(0, 0, drawableSizeInPixels, drawableSizeInPixels);
-				tv.setCompoundDrawables(imageId, null, null, null);
-				tv.setCompoundDrawablePadding(paddingInPixels);
+			if (this.layoutId == R.layout.simple_list_menu_item) {
+				@ColorRes
+				int color = lightTheme ? R.color.icon_color : R.color.dashboard_subheader_text_dark;
+				Drawable drawable = item.getIcon() != ContextMenuItem.INVALID_ID
+						? mIconsCache.getIcon(item.getIcon(), color) : null;
+				if (drawable != null && tv != null) {
+					float density = getContext().getResources().getDisplayMetrics().density;
+					int paddingInPixels = (int) (24 * density);
+					int drawableSizeInPixels = (int) (24 * density); // 32
+					drawable.setBounds(0, 0, drawableSizeInPixels, drawableSizeInPixels);
+					tv.setCompoundDrawables(drawable, null, null, null);
+					tv.setCompoundDrawablePadding(paddingInPixels);
+				}
 			} else {
-				Drawable imageId = getImage(app, position, holoLight);
-				if (imageId != null) {
-
-					((ImageView) convertView.findViewById(R.id.icon)).setImageDrawable(imageId);
+				if (item.getIcon() != ContextMenuItem.INVALID_ID) {
+					int colorRes = item.getColorRes();
+					if (colorRes == ContextMenuItem.INVALID_ID) {
+						if (!item.shouldSkipPainting()) {
+							colorRes = lightTheme ? R.color.icon_color : R.color.color_white;
+						} else {
+							colorRes = 0;
+						}
+					}
+					final Drawable drawable = mIconsCache.getIcon(item.getIcon(), colorRes);
+					((AppCompatImageView) convertView.findViewById(R.id.icon)).setImageDrawable(drawable);
 					convertView.findViewById(R.id.icon).setVisibility(View.VISIBLE);
 				} else if (convertView.findViewById(R.id.icon) != null) {
 					convertView.findViewById(R.id.icon).setVisibility(View.GONE);
 				}
 			}
-
-			if (isCategory(position)) {
-				tv.setTypeface(Typeface.DEFAULT_BOLD);
+			@DrawableRes
+			int secondaryDrawable = item.getSecondaryIcon();
+			if (secondaryDrawable != ContextMenuItem.INVALID_ID) {
+				@ColorRes
+				int colorRes = lightTheme ? R.color.icon_color_light : R.color.dialog_inactive_text_color_dark;
+				Drawable drawable = mIconsCache.getIcon(item.getSecondaryIcon(), colorRes);
+				ImageView imageView = (ImageView) convertView.findViewById(R.id.secondary_icon);
+				imageView.setImageDrawable(drawable);
+				imageView.setVisibility(View.VISIBLE);
 			} else {
-				tv.setTypeface(null);
+				ImageView imageView = (ImageView) convertView.findViewById(R.id.secondary_icon);
+				if (imageView != null) {
+					imageView.setVisibility(View.GONE);
+				}
 			}
 
-			if (convertView.findViewById(R.id.check_item) != null) {
-				final CompoundButton ch = (CompoundButton) convertView.findViewById(R.id.check_item);
-				if (selectedList.get(position) != -1) {
+			if (convertView.findViewById(R.id.toggle_item) != null && !item.isCategory()) {
+				final CompoundButton ch = (CompoundButton) convertView.findViewById(R.id.toggle_item);
+				if (item.getSelected() != null) {
 					ch.setOnCheckedChangeListener(null);
 					ch.setVisibility(View.VISIBLE);
-					ch.setChecked(selectedList.get(position) > 0);
-					final ArrayAdapter<String> la = this;
+					ch.setChecked(item.getSelected());
+					final ArrayAdapter<ContextMenuItem> la = this;
 					final OnCheckedChangeListener listener = new OnCheckedChangeListener() {
 
 						@Override
 						public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-							OnContextMenuClick ca = getClickAdapter(position);
-							selectedList.set(position, isChecked ? 1 : 0);
+							ItemClickListener ca = item.getItemClickListener();
+							item.setSelected(isChecked);
 							if (ca != null) {
-								ca.onContextMenuClick(la, getElementId(position), position, isChecked);
+								ca.onContextMenuClick(la, item.getTitleId(), position, isChecked);
 							}
 						}
 					};
@@ -407,20 +259,93 @@ public class ContextMenuAdapter {
 				}
 			}
 
+			if (convertView.findViewById(R.id.seekbar) != null) {
+				SeekBar seekBar = (SeekBar) convertView.findViewById(R.id.seekbar);
+				if (item.getProgress() != ContextMenuItem.INVALID_ID) {
+					seekBar.setProgress(item.getProgress());
+					seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+						@Override
+						public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+							OnIntegerValueChangedListener listener = item.getIntegerListener();
+							item.setProgress(progress);
+							if (listener != null && fromUser) {
+								listener.onIntegerValueChangedListener(progress);
+							}
+						}
+
+						@Override
+						public void onStartTrackingTouch(SeekBar seekBar) {
+						}
+
+						@Override
+						public void onStopTrackingTouch(SeekBar seekBar) {
+						}
+					});
+					seekBar.setVisibility(View.VISIBLE);
+				} else if (seekBar != null) {
+					seekBar.setVisibility(View.GONE);
+				}
+			}
+
 			if (convertView.findViewById(R.id.ProgressBar) != null) {
 				ProgressBar bar = (ProgressBar) convertView.findViewById(R.id.ProgressBar);
-				if (loadingList.get(position) == 1) {
+				if (item.isLoading()) {
 					bar.setVisibility(View.VISIBLE);
 				} else {
 					bar.setVisibility(View.INVISIBLE);
 				}
 			}
 
-			String itemDescr = getItemDescr(position);
-			if (convertView.findViewById(R.id.description) != null) {
-				((TextView) convertView.findViewById(R.id.description)).setText(itemDescr);
+			View descriptionTextView = convertView.findViewById(R.id.description);
+			if (descriptionTextView != null) {
+				String itemDescr = item.getDescription();
+				if (itemDescr != null) {
+					((TextView) descriptionTextView).setText(itemDescr);
+					descriptionTextView.setVisibility(View.VISIBLE);
+				} else {
+					descriptionTextView.setVisibility(View.GONE);
+				}
 			}
+
+			View dividerView = convertView.findViewById(R.id.divider);
+			if (dividerView != null) {
+				if (getCount() - 1 == position || getItem(position + 1).isCategory()
+						|| item.shouldHideDivider()) {
+					dividerView.setVisibility(View.GONE);
+				} else {
+					dividerView.setVisibility(View.VISIBLE);
+				}
+			}
+
+			if (item.isCategory()) {
+				convertView.setFocusable(false);
+				convertView.setClickable(false);
+			}
+
 			return convertView;
+		}
+	}
+
+	public interface ItemClickListener {
+		//boolean return type needed to desribe if drawer needed to be close or not
+		boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter, int itemId, int position, boolean isChecked);
+	}
+
+	public interface OnIntegerValueChangedListener {
+		boolean onIntegerValueChangedListener(int newValue);
+	}
+
+	public static abstract class OnRowItemClick implements ItemClickListener {
+
+		//boolean return type needed to describe if drawer needed to be close or not
+		public boolean onRowItemClick(ArrayAdapter<ContextMenuItem> adapter, View view, int itemId, int position) {
+			CompoundButton btn = (CompoundButton) view.findViewById(R.id.toggle_item);
+			if (btn != null && btn.getVisibility() == View.VISIBLE) {
+				btn.setChecked(!btn.isChecked());
+				return false;
+			} else {
+				return onContextMenuClick(adapter, itemId, position, false);
+			}
 		}
 	}
 }

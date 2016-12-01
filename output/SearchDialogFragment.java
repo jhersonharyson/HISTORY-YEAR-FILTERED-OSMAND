@@ -1,11 +1,14 @@
 package net.osmand.plus.download.ui;
 
 import android.content.res.TypedArray;
+import android.graphics.Color;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.content.ContextCompat;
-import android.support.v7.view.ContextThemeWrapper;
 import android.support.v7.widget.Toolbar;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -13,21 +16,29 @@ import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.BaseAdapter;
+import android.widget.EditText;
 import android.widget.ExpandableListView;
 import android.widget.Filter;
 import android.widget.Filterable;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ListView;
-import android.widget.RelativeLayout;
-import android.widget.RelativeLayout.LayoutParams;
-import android.widget.SearchView;
+import android.widget.ProgressBar;
 
 import net.osmand.Collator;
+import net.osmand.CollatorStringMatcher;
 import net.osmand.OsmAndCollator;
+import net.osmand.ResultMatcher;
+import net.osmand.binary.BinaryMapDataObject;
+import net.osmand.binary.BinaryMapIndexReader;
+import net.osmand.binary.BinaryMapIndexReader.SearchRequest;
+import net.osmand.data.Amenity;
 import net.osmand.map.OsmandRegions;
+import net.osmand.map.WorldRegion;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
+import net.osmand.plus.download.CityItem;
 import net.osmand.plus.download.DownloadActivity;
 import net.osmand.plus.download.DownloadActivity.BannerAndDownloadFreeVersion;
 import net.osmand.plus.download.DownloadActivityType;
@@ -36,9 +47,15 @@ import net.osmand.plus.download.DownloadResourceGroup;
 import net.osmand.plus.download.DownloadResourceGroup.DownloadResourceGroupType;
 import net.osmand.plus.download.DownloadResources;
 import net.osmand.plus.download.IndexItem;
+import net.osmand.search.core.SearchPhrase;
 import net.osmand.util.Algorithms;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedList;
@@ -52,7 +69,10 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 	private SearchListAdapter listAdapter;
 	private BannerAndDownloadFreeVersion banner;
 	private String searchText;
-	private SearchView searchView;
+	private View searchView;
+	private EditText searchEditText;
+	private ProgressBar progressBar;
+	private ImageButton clearButton;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -77,7 +97,8 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 			searchText = "";
 
 		Toolbar toolbar = (Toolbar) view.findViewById(R.id.toolbar);
-		toolbar.setNavigationIcon(getMyApplication().getIconsCache().getIcon(R.drawable.abc_ic_ab_back_mtrl_am_alpha));
+		toolbar.setNavigationIcon(R.drawable.abc_ic_ab_back_mtrl_am_alpha);
+		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -105,42 +126,48 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 
 		TypedValue typedValue = new TypedValue();
 		getActivity().getTheme().resolveAttribute(R.attr.toolbar_theme, typedValue, true);
-		searchView = new SearchView(new ContextThemeWrapper(getActivity(), typedValue.data));
-		RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
-				LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
-		params.setMargins(0, 0, 0, 0);
-		searchView.setLayoutParams(params);
+
+		searchView = inflater.inflate(R.layout.search_text_layout, toolbar, false);
 		toolbar.addView(searchView);
 
-		searchView.setOnCloseListener(new SearchView.OnCloseListener() {
+		searchEditText = (EditText) view.findViewById(R.id.searchEditText);
+		searchEditText.setHint(R.string.search_map_hint);
+		searchEditText.setTextColor(Color.WHITE);
+		boolean isLight = getMyApplication().getSettings().isLightContent();
+		searchEditText.setHintTextColor(isLight ?
+				getMyApplication().getResources().getColor(R.color.inactive_item_orange) : getMyApplication().getResources().getColor(R.color.searchbar_tab_inactive_dark));
+
+		progressBar = (ProgressBar) view.findViewById(R.id.searchProgressBar);
+		clearButton = (ImageButton) view.findViewById(R.id.clearButton);
+		clearButton.setVisibility(View.GONE);
+
+		searchEditText.addTextChangedListener(new TextWatcher() {
 			@Override
-			public boolean onClose() {
-				if (searchView.getQuery().length() == 0) {
+			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+			}
+
+			@Override
+			public void onTextChanged(CharSequence s, int start, int before, int count) {
+			}
+
+			@Override
+			public void afterTextChanged(Editable s) {
+				updateSearchText(s.toString());
+			}
+		});
+
+		clearButton.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				if (searchEditText.getText().length() == 0) {
 					dismiss();
-					return true;
+				} else {
+					searchEditText.setText("");
 				}
-				return false;
-			}
-		});
-		
-		searchView.setOnQueryTextFocusChangeListener(new View.OnFocusChangeListener() {
-			@Override
-			public void onFocusChange(View v, boolean hasFocus) {
 			}
 		});
 
-		searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
-			@Override
-			public boolean onQueryTextSubmit(String query) {
-				return false;
-			}
-
-			@Override
-			public boolean onQueryTextChange(String newText) {
-				updateSearchText(newText);
-				return true;
-			}
-		});
+		searchEditText.requestFocus();
 
 		return view;
 	}
@@ -187,15 +214,16 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 	@Override
 	public void onResume() {
 		super.onResume();
-		searchView.setIconified(false);
 		if (!Algorithms.isEmpty(searchText)) {
-			searchView.setQuery(searchText, true);
+			searchEditText.setText(searchText);
 		}
 	}
 
 	public void updateSearchText(String searchText) {
 		this.searchText = searchText;
-		listAdapter.getFilter().filter(searchText);
+		SearchListAdapter.SearchIndexFilter filter = (SearchListAdapter.SearchIndexFilter) listAdapter.getFilter();
+		filter.cancelFilter();
+		filter.filter(searchText);
 	}
 
 	private OsmandApplication getMyApplication() {
@@ -230,15 +258,35 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 		}
 	}
 
+	private void showProgressBar() {
+		updateClearButtonVisibility(false);
+		progressBar.setVisibility(View.VISIBLE);
+	}
+
+	private void hideProgressBar() {
+		updateClearButtonVisibility(true);
+		progressBar.setVisibility(View.GONE);
+	}
+
+	private void updateClearButtonVisibility(boolean show) {
+		if (show) {
+			clearButton.setVisibility(searchEditText.length() > 0 ? View.VISIBLE : View.GONE);
+		} else {
+			clearButton.setVisibility(View.GONE);
+		}
+	}
+
 	private class SearchListAdapter extends BaseAdapter implements Filterable {
 
 		private SearchIndexFilter mFilter;
+		private OsmandRegions osmandRegions;
 
 		private List<Object> items = new LinkedList<>();
 		private DownloadActivity ctx;
 
 		public SearchListAdapter(DownloadActivity ctx) {
 			this.ctx = ctx;
+			this.osmandRegions = ctx.getMyApplication().getRegions();
 			TypedArray ta = ctx.getTheme().obtainStyledAttributes(new int[]{android.R.attr.textColorPrimary});
 			ta.recycle();
 		}
@@ -266,7 +314,7 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 		@Override
 		public int getItemViewType(int position) {
 			Object obj = items.get(position);
-			if (obj instanceof IndexItem) {
+			if (obj instanceof IndexItem || obj instanceof CityItem) {
 				return 0;
 			} else {
 				return 1;
@@ -281,9 +329,8 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 		@Override
 		public View getView(final int position, View convertView, ViewGroup parent) {
 			final Object obj = items.get(position);
-			if (obj instanceof IndexItem) {
+			if (obj instanceof IndexItem || obj instanceof CityItem) {
 
-				IndexItem item = (IndexItem) obj;
 				ItemViewHolder viewHolder;
 				if (convertView != null && convertView.getTag() instanceof ItemViewHolder) {
 					viewHolder = (ItemViewHolder) convertView.getTag();
@@ -294,8 +341,17 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 					viewHolder.setShowRemoteDate(true);
 					convertView.setTag(viewHolder);
 				}
-				viewHolder.setShowTypeInDesc(true);
-				viewHolder.bindIndexItem(item);
+				if (obj instanceof IndexItem) {
+					IndexItem item = (IndexItem) obj;
+					viewHolder.setShowTypeInDesc(true);
+					viewHolder.bindIndexItem(item);
+				} else {
+					CityItem item = (CityItem) obj;
+					viewHolder.bindIndexItem(item);
+					if (item.getIndexItem() == null) {
+						new IndexItemResolverTask(viewHolder, item).execute();
+					}
+				}
 			} else {
 				DownloadResourceGroup group = (DownloadResourceGroup) obj;
 				DownloadGroupViewHolder viewHolder;
@@ -326,12 +382,62 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 			return mFilter;
 		}
 
+		class IndexItemResolverTask extends AsyncTask<Void, Void, IndexItem> {
+			private final WeakReference<ItemViewHolder> viewHolderReference;
+			private final CityItem cityItem;
+
+			public IndexItemResolverTask(ItemViewHolder viewHolder, CityItem cityItem) {
+				this.viewHolderReference = new WeakReference<>(viewHolder);
+				this.cityItem = cityItem;
+			}
+
+			@Override
+			protected IndexItem doInBackground(Void... params) {
+				Amenity amenity = cityItem.getAmenity();
+				BinaryMapDataObject o = osmandRegions.findBinaryMapDataObject(amenity.getLocation());
+				if (o != null) {
+					String selectedFullName = osmandRegions.getFullName(o);
+					WorldRegion downloadRegion = osmandRegions.getRegionData(selectedFullName);
+					List<IndexItem> indexItems = ctx.getDownloadThread().getIndexes().getIndexItems(downloadRegion);
+					for (IndexItem item : indexItems) {
+						if (item.getType() == DownloadActivityType.NORMAL_FILE) {
+							return item;
+						}
+					}
+				}
+				return null;
+			}
+
+			@Override
+			protected void onPostExecute(IndexItem indexItem) {
+				if (isCancelled()) {
+					return;
+				}
+				ItemViewHolder viewHolder = viewHolderReference.get();
+				if (viewHolder != null) {
+					if (indexItem != null) {
+						cityItem.setIndexItem(indexItem);
+						viewHolder.bindIndexItem(indexItem, cityItem.getName());
+					}
+				}
+			}
+		}
+
 		private final class SearchIndexFilter extends Filter {
 
 			private OsmandRegions osmandRegions;
+			private final int searchCityLimit = 10000;
+			private final List<String> citySubTypes = Arrays.asList("city", "town");
+			private SearchRequest<Amenity> searchCityRequest;
 
 			public SearchIndexFilter() {
 				this.osmandRegions = ctx.getMyApplication().getRegions();
+			}
+
+			public void cancelFilter() {
+				if (searchCityRequest != null) {
+					searchCityRequest.setInterrupted(true);
+				}
 			}
 
 			private void processGroup(DownloadResourceGroup group, List<Object> filter, List<List<String>> conds) {
@@ -386,8 +492,73 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 				}
 			}
 
+			public List<CityItem> searchCities(final OsmandApplication app, final String text) throws IOException {
+				IndexItem worldBaseMapItem = app.getDownloadThread().getIndexes().getWorldBaseMapItem();
+				if (worldBaseMapItem == null || !worldBaseMapItem.isDownloaded()) {
+					return new ArrayList<>();
+				}
+				File obf = worldBaseMapItem.getTargetFile(app);
+				final BinaryMapIndexReader baseMapReader = new BinaryMapIndexReader(new RandomAccessFile(obf, "r"), obf);
+				final SearchPhrase.NameStringMatcher nm = new SearchPhrase.NameStringMatcher(
+						text, CollatorStringMatcher.StringMatcherMode.CHECK_STARTS_FROM_SPACE);
+				final String lang = app.getSettings().MAP_PREFERRED_LOCALE.get();
+				final boolean translit = app.getSettings().MAP_TRANSLITERATE_NAMES.get();
+				final List<Amenity> amenities = new ArrayList<>();
+				SearchRequest<Amenity> request = BinaryMapIndexReader.buildSearchPoiRequest(
+						0, 0,
+						text,
+						Integer.MIN_VALUE, Integer.MAX_VALUE,
+						Integer.MIN_VALUE, Integer.MAX_VALUE,
+						new ResultMatcher<Amenity>() {
+							int count = 0;
+
+							@Override
+							public boolean publish(Amenity amenity) {
+								if (count++ > searchCityLimit) {
+									return false;
+								}
+								List<String> otherNames = amenity.getAllNames(true);
+								String localeName = amenity.getName(lang, translit);
+								String subType = amenity.getSubType();
+								if (!citySubTypes.contains(subType)
+										|| (!nm.matches(localeName) && !nm.matches(otherNames))) {
+									return false;
+								}
+								amenities.add(amenity);
+								return false;
+							}
+
+							@Override
+							public boolean isCancelled() {
+								return count > searchCityLimit;
+							}
+						});
+
+				searchCityRequest = request;
+				baseMapReader.searchPoiByName(request);
+				try {
+					baseMapReader.close();
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+
+				List<CityItem> items = new ArrayList<>();
+				for (Amenity amenity : amenities) {
+					items.add(new CityItem(amenity.getName(), amenity, null));
+				}
+				return items;
+			}
+
 			@Override
 			protected FilterResults performFiltering(CharSequence constraint) {
+
+				getMyApplication().runInUIThread(new Runnable() {
+					@Override
+					public void run() {
+						showProgressBar();
+					}
+				});
+
 				DownloadResources root = ctx.getDownloadThread().getIndexes();
 
 				FilterResults results = new FilterResults();
@@ -395,6 +566,15 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 					results.values = new ArrayList<>();
 					results.count = 0;
 				} else {
+					List<Object> filter = new ArrayList<>();
+					if (constraint.length() > 2) {
+						try {
+							filter.addAll(searchCities(getMyApplication(), constraint.toString()));
+						} catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+
 					String[] ors = constraint.toString().split(",");
 					List<List<String>> conds = new ArrayList<>();
 					for (String or : ors) {
@@ -410,7 +590,6 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 						}
 					}
 
-					List<Object> filter = new ArrayList<>();
 					processGroup(root, filter, conds);
 
 					final Collator collator = OsmAndCollator.primaryCollator();
@@ -421,13 +600,27 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 							String str2;
 							if (obj1 instanceof DownloadResourceGroup) {
 								str1 = ((DownloadResourceGroup) obj1).getName(ctx);
-							} else {
+							} else if (obj1 instanceof IndexItem) {
 								str1 = ((IndexItem) obj1).getVisibleName(getMyApplication(), osmandRegions, false);
+							} else {
+								Amenity a = ((CityItem) obj1).getAmenity();
+								if ("city".equals(a.getSubType())) {
+									str1 = "!" + ((CityItem) obj1).getName();
+								} else {
+									str1 = ((CityItem) obj1).getName();
+								}
 							}
 							if (obj2 instanceof DownloadResourceGroup) {
 								str2 = ((DownloadResourceGroup) obj2).getName(ctx);
-							} else {
+							} else if (obj2 instanceof IndexItem) {
 								str2 = ((IndexItem) obj2).getVisibleName(getMyApplication(), osmandRegions, false);
+							} else {
+								Amenity a = ((CityItem) obj2).getAmenity();
+								if ("city".equals(a.getSubType())) {
+									str2 = "!" + ((CityItem) obj2).getName();
+								} else {
+									str2 = ((CityItem) obj2).getName();
+								}
 							}
 							return collator.compare(str1, str2);
 						}
@@ -436,6 +629,14 @@ public class SearchDialogFragment extends DialogFragment implements DownloadEven
 					results.values = filter;
 					results.count = filter.size();
 				}
+
+				getMyApplication().runInUIThread(new Runnable() {
+					@Override
+					public void run() {
+						hideProgressBar();
+					}
+				});
+
 				return results;
 			}
 

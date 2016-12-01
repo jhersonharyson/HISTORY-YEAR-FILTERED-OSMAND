@@ -52,9 +52,10 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		View view = super.onCreateView(inflater, container, savedInstanceState);
 		if (view != null && editor.isNew()) {
-			Button btnReplace = (Button) view.findViewById(R.id.button_replace);
-			btnReplace.setVisibility(View.VISIBLE);
-			btnReplace.setOnClickListener(new View.OnClickListener() {
+			Button replaceButton = (Button) view.findViewById(R.id.replace_button);
+			replaceButton.setTextColor(getResources().getColor(!getEditor().isLight() ? R.color.osmand_orange : R.color.map_widget_blue));
+			replaceButton.setVisibility(View.VISIBLE);
+			replaceButton.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
 					Bundle args = new Bundle();
@@ -161,6 +162,7 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 		favorite.setName(name);
 		favorite.setCategory(category);
 		favorite.setDescription(description);
+		getMyApplication().getSettings().LAST_FAV_CATEGORY_ENTERED.set(category);
 		helper.addFavourite(favorite);
 	}
 

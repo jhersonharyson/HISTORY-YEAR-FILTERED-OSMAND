@@ -1,5 +1,6 @@
 package net.osmand.plus.dialogs;
 
+
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
@@ -16,10 +17,10 @@ import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import net.osmand.AndroidUtils;
-import net.osmand.access.AccessibleToast;
 import net.osmand.data.FavouritePoint;
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
@@ -51,7 +52,31 @@ public class FavoriteDialogs {
 
 			@Override
 			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-				FavouritePoint fp = favouritesAdapter.getItem(position);
+				confirmReplace(activity, args, helper, favouritesAdapter, dlgHolder, position);
+			}
+			
+		};
+		if (activity instanceof MapActivity) {
+			favouritesAdapter.updateLocation(((MapActivity) activity).getMapLocation());
+		}
+		if(points.size() == 0){
+			Toast.makeText(activity, activity.getString(R.string.fav_points_not_exist), Toast.LENGTH_SHORT).show();
+			return null;
+		}
+		return showFavoritesDialog(activity, favouritesAdapter, click, null, dlgHolder, true);
+	}
+	
+	private static void confirmReplace(final Activity activity, final Bundle args, final FavouritesDbHelper helper,
+			final FavouritesAdapter favouritesAdapter, final Dialog[] dlgHolder, int position) {
+		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
+		builder.setTitle(R.string.update_existing);
+		final FavouritePoint fp = favouritesAdapter.getItem(position);
+		builder.setMessage(activity.getString(R.string.replace_favorite_confirmation, fp.getName()));
+		builder.setNegativeButton(R.string.shared_string_no, null);
+		builder.setPositiveButton(R.string.shared_string_yes, new OnClickListener() {
+			
+			@Override
+			public void onClick(DialogInterface dialog, int which) {
 				if(dlgHolder != null && dlgHolder.length > 0 && dlgHolder[0] != null) {
 					dlgHolder[0].dismiss();
 				}
@@ -64,18 +89,10 @@ public class FavoriteDialogs {
 				}
 				if (activity instanceof MapActivity) {
 					((MapActivity) activity).getMapView().refreshMap();
-				}
+				}				
 			}
-		};
-		if (activity instanceof MapActivity) {
-			favouritesAdapter.updateLocation(((MapActivity) activity).getMapLocation());
-		}
-		final String[] names = new String[points.size()];
-		if(points.size() == 0){
-			AccessibleToast.makeText(activity, activity.getString(R.string.fav_points_not_exist), Toast.LENGTH_SHORT).show();
-			return null;
-		}
-		return showFavoritesDialog(activity, favouritesAdapter, click, null, dlgHolder, true);
+		});
+		builder.show();
 	}
 	
 	public static void prepareAddFavouriteDialog(Activity activity, Dialog dialog, Bundle args, double lat, double lon, PointDescription desc) {
@@ -106,12 +123,33 @@ public class FavoriteDialogs {
 		final EditText description = (EditText) v.findViewById(R.id.description);
 		final AutoCompleteTextView cat =  (AutoCompleteTextView) v.findViewById(R.id.Category);
 		List<FavoriteGroup> gs = helper.getFavoriteGroups();
-		String[] list = new String[gs.size()];
+		final String[] list = new String[gs.size()];
 		for (int i = 0; i < list.length; i++) {
 			list[i] = gs.get(i).name;
 		}
 		cat.setAdapter(new ArrayAdapter<String>(activity, R.layout.list_textview, list));
 		
+		if (((OsmandApplication)activity.getApplication()).accessibilityEnabled()) {
+			final TextView textButton = (TextView)v.findViewById(R.id.TextButton);
+			textButton.setClickable(true);
+			textButton.setFocusable(true);
+			textButton.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View view) {
+					AlertDialog.Builder b = new AlertDialog.Builder(activity);
+					b.setTitle(R.string.access_category_choice);
+					b.setItems(list, new DialogInterface.OnClickListener() {
+						@Override
+						public void onClick(DialogInterface dialog, int which) {
+							cat.setText(list[which]);
+						}
+					});
+					b.setNegativeButton(R.string.shared_string_cancel, null);
+					b.show();
+				}
+			});
+		}
+
 		builder.setNegativeButton(R.string.shared_string_cancel, null);
 		builder.setNeutralButton(R.string.update_existing, new DialogInterface.OnClickListener(){
 
@@ -154,7 +192,7 @@ public class FavoriteDialogs {
 			protected void addFavorite(final Activity activity, FavouritePoint point, final FavouritesDbHelper helper) {
 				boolean added = helper.addFavourite(point);
 				if (added) {
-					AccessibleToast.makeText(activity, MessageFormat.format(
+					Toast.makeText(activity, MessageFormat.format(
 							activity.getString(R.string.add_favorite_dialog_favourite_added_template), point.getName()), Toast.LENGTH_SHORT)
 							.show();
 				}

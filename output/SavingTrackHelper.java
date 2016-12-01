@@ -4,7 +4,6 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.text.format.DateFormat;
-
 import net.osmand.PlatformUtil;
 import net.osmand.data.LatLon;
 import net.osmand.plus.GPXUtilities;
@@ -19,6 +18,9 @@ import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.monitoring.OsmandMonitoringPlugin;
+import net.osmand.plus.notifications.OsmandNotification;
+import net.osmand.plus.notifications.OsmandNotification.NotificationType;
+import net.osmand.util.MapUtils;
 
 import org.apache.commons.logging.Log;
 
@@ -63,6 +65,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 
 	private LatLon lastPoint;
 	private float distance = 0;
+	private long duration = 0;
 	private SelectedGpxFile currentTrack;
 	private int points;
 	
@@ -227,6 +230,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		}
 		distance = 0;
 		points = 0;
+		duration = 0;
 		currentTrack.getModifiableGpxFile().points.clear();
 		currentTrack.getModifiableGpxFile().tracks.clear();
 		currentTrack.getModifiablePointsToDisplay().clear();
@@ -365,12 +369,25 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 						&& locationTime - lastTimeUpdated > settings.SAVE_GLOBAL_TRACK_INTERVAL.get()) {
 					record = true;
 				}
+				float minDistance = settings.SAVE_TRACK_MIN_DISTANCE.get();
+				if(minDistance > 0 && lastPoint != null && MapUtils.getDistance(lastPoint, location.getLatitude(), location.getLongitude()) < 
+						minDistance) {
+					record = false;
+				}
+				float precision = settings.SAVE_TRACK_PRECISION.get();
+				if(precision > 0 && (!location.hasAccuracy() || location.getAccuracy() > precision)) {
+					record = false;
+				}
+				float minSpeed = settings.SAVE_TRACK_MIN_SPEED.get();
+				if(minSpeed > 0 && (!location.hasSpeed() || location.getSpeed() < minSpeed)) {
+					record = false;
+				}
 			}
 		}
 		if (record) {
 			insertData(location.getLatitude(), location.getLongitude(), location.getAltitude(), location.getSpeed(),
 					location.getAccuracy(), locationTime, settings);
-			ctx.getNotificationHelper().showNotification();
+			ctx.getNotificationHelper().refreshNotification(NotificationType.GPX);
 		}
 	}
 	
@@ -387,6 +404,9 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 			float[] lastInterval = new float[1];
 			net.osmand.Location.distanceBetween(lat, lon, lastPoint.getLatitude(), lastPoint.getLongitude(),
 					lastInterval);
+			if (lastTimeUpdated > 0 && time > lastTimeUpdated) {
+				duration += time - lastTimeUpdated;
+			}
 			distance += lastInterval[0];
 			lastPoint = new LatLon(lat, lon);
 		}
@@ -560,6 +580,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		GPXTrackAnalysis analysis = currentTrack.getModifiableGpxFile().getAnalysis(System.currentTimeMillis());
 		distance = analysis.totalDistance;
 		points = analysis.wptPoints;
+		duration = analysis.timeSpan;
 	}
 
 	private void prepareCurrentTrackForRecording() {
@@ -585,7 +606,11 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	public float getDistance() {
 		return distance;
 	}
-	
+
+	public long getDuration() {
+		return duration;
+	}
+
 	public int getPoints() {
 		return points;
 	}

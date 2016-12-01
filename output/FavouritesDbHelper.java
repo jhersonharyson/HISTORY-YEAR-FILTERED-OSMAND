@@ -166,8 +166,8 @@ public class FavouritesDbHelper {
 			cachedFavoritePoints.add(p);
 		}
 		if (saveImmediately) {
-			saveCurrentPointsIntoFile();
 			sortAll();
+			saveCurrentPointsIntoFile();
 		}
 
 		return true;
@@ -405,6 +405,9 @@ public class FavouritesDbHelper {
 			pt.desc = p.getDescription();
 			if (p.getCategory().length() > 0)
 				pt.category = p.getCategory();
+			if (p.getOriginObjectName().length() > 0) {
+				pt.comment = p.getOriginObjectName();
+			}
 			gpx.points.add(pt);
 		}
 		return gpx;
@@ -483,7 +486,7 @@ public class FavouritesDbHelper {
 		cachedFavoritePoints = temp;
 	}
 	
-	private void sortAll() {
+	public void sortAll() {
 		final Collator collator = Collator.getInstance();
 		collator.setStrength(Collator.SECONDARY);
 		Collections.sort(favoriteGroups, new Comparator<FavoriteGroup>() {
@@ -515,6 +518,13 @@ public class FavouritesDbHelper {
 				int i2 = Algorithms.extractIntegerNumber(s2);
 				String ot1 = Algorithms.extractIntegerPrefix(s1);
 				String ot2 = Algorithms.extractIntegerPrefix(s2);
+				// Next 6 lines needed for correct comparison of names with and without digits
+				if (ot1.length() == 0) {
+					ot1 = s1;
+				}
+				if (ot2.length() == 0) {
+					ot2 = s2;
+				}
 				int res = collator.compare(ot1, ot2);
 				if (res == 0) {
 					res = i1 - i2;
@@ -552,6 +562,9 @@ public class FavouritesDbHelper {
 			}
 			FavouritePoint fp = new FavouritePoint(p.lat, p.lon, name, categoryName);
 			fp.setDescription(p.desc);
+			if (p.comment != null) {
+				fp.setOriginObjectName(p.comment);
+			}
 			fp.setColor(p.getColor(0));
 			fp.setVisible(!p.getExtensionsToRead().containsKey(HIDDEN));
 			points.put(getKey(fp), fp);

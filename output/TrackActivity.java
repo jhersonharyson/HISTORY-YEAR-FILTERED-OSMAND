@@ -13,13 +13,17 @@ import net.osmand.plus.GPXUtilities.GPXFile;
 import net.osmand.plus.GpxSelectionHelper;
 import net.osmand.plus.GpxSelectionHelper.GpxDisplayGroup;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
+import net.osmand.plus.OsmAndAppCustomization;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
+import net.osmand.plus.myplaces.FavoritesActivity;
 import net.osmand.plus.myplaces.SelectedGPXFragment;
 import net.osmand.plus.myplaces.TrackPointFragment;
 import net.osmand.plus.myplaces.TrackRoutePointFragment;
 import net.osmand.plus.myplaces.TrackSegmentFragment;
 import net.osmand.plus.views.controls.PagerSlidingTabStrip;
+
+import android.app.Activity;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -100,7 +104,7 @@ public class TrackActivity extends TabActivity {
 						getTabIndicator(R.string.track_segments, TrackSegmentFragment.class));
 				if (isHavingWayPoints()){
 					((OsmandFragmentPagerAdapter) mViewPager.getAdapter()).addTab(
-							getTabIndicator(R.string.track_points, TrackPointFragment.class));
+							getTabIndicator(R.string.announce_gpx_waypoints, TrackPointFragment.class));
 				}
 				if (isHavingRoutePoints()){
 					((OsmandFragmentPagerAdapter) mViewPager.getAdapter()).addTab(
@@ -172,6 +176,13 @@ public class TrackActivity extends TabActivity {
 		int itemId = item.getItemId();
 		switch (itemId) {
 		case android.R.id.home:
+			if (getIntent().hasExtra(MapActivity.INTENT_KEY_PARENT_MAP_ACTIVITY)) {
+				OsmAndAppCustomization appCustomization = getMyApplication().getAppCustomization();
+				final Intent favorites = new Intent(this, appCustomization.getFavoritesActivity());
+				getMyApplication().getSettings().FAVORITES_TAB.set(FavoritesActivity.GPX_TAB);
+				favorites.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+				startActivity(favorites);
+			}
 			finish();
 			return true;
 

@@ -49,6 +49,7 @@ public class DownloadResourceGroupFragment extends DialogFragment implements Dow
 	private DownloadResourceGroup group;
 	private DownloadActivity activity;
 	private Toolbar toolbar;
+	private View searchView;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -76,9 +77,11 @@ public class DownloadResourceGroupFragment extends DialogFragment implements Dow
 			groupId = "";
 		}
 		activity = (DownloadActivity) getActivity();
+		activity.getAccessibilityAssistant().registerPage(view, DownloadActivity.DOWNLOAD_TAB_NUMBER);
 
 		toolbar = (Toolbar) view.findViewById(R.id.toolbar);
 		toolbar.setNavigationIcon(getMyApplication().getIconsCache().getIcon(R.drawable.abc_ic_ab_back_mtrl_am_alpha));
+		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -99,11 +102,43 @@ public class DownloadResourceGroupFragment extends DialogFragment implements Dow
 		}
 
 		listView = (ExpandableListView) view.findViewById(android.R.id.list);
+		addSearchRow();
 		listView.setOnChildClickListener(this);
 		listAdapter = new DownloadResourceGroupAdapter(activity);
 		listView.setAdapter(listAdapter);
 
 		return view;
+	}
+
+	private void addSearchRow() {
+		if (!openAsDialog() ) {
+			searchView = activity.getLayoutInflater().inflate(R.layout.simple_list_menu_item, null);
+			searchView.setBackgroundResource(android.R.drawable.list_selector_background);
+			TextView title = (TextView) searchView.findViewById(R.id.title);
+			title.setCompoundDrawablesWithIntrinsicBounds(getMyApplication().getIconsCache().getThemedIcon(R.drawable.ic_action_search_dark), null, null, null);
+			title.setHint(R.string.search_map_hint);
+			searchView.setOnClickListener(new OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					getDownloadActivity().showDialog(getActivity(), SearchDialogFragment.createInstance(""));
+				}
+			});
+			listView.addHeaderView(searchView);
+			listView.setHeaderDividersEnabled(false);
+			IndexItem worldBaseMapItem = activity.getDownloadThread().getIndexes().getWorldBaseMapItem();
+			if (worldBaseMapItem == null || !worldBaseMapItem.isDownloaded()) {
+				title.setVisibility(View.GONE);
+			}
+		}
+	}
+
+	private void updateSearchView() {
+		if (searchView != null && searchView.findViewById(R.id.title).getVisibility() == View.GONE) {
+			IndexItem worldBaseMapItem = activity.getDownloadThread().getIndexes().getWorldBaseMapItem();
+			if (worldBaseMapItem != null && worldBaseMapItem.isDownloaded()) {
+				searchView.findViewById(R.id.title).setVisibility(View.VISIBLE);
+			}
+		}
 	}
 
 	@Override
@@ -131,6 +166,9 @@ public class DownloadResourceGroupFragment extends DialogFragment implements Dow
 	}
 
 	private void reloadData() {
+		if (!openAsDialog()) {
+			updateSearchView();
+		}
 		DownloadResources indexes = activity.getDownloadThread().getIndexes();
 		group = indexes.getGroupById(groupId);
 		if (group != null) {
@@ -269,15 +307,15 @@ public class DownloadResourceGroupFragment extends DialogFragment implements Dow
 			Drawable iconLeft;
 			if (group.getType() == DownloadResourceGroupType.VOICE_REC
 					|| group.getType() == DownloadResourceGroupType.VOICE_TTS) {
-				iconLeft = ctx.getMyApplication().getIconsCache().getContentIcon(R.drawable.ic_action_volume_up);
+				iconLeft = ctx.getMyApplication().getIconsCache().getThemedIcon(R.drawable.ic_action_volume_up);
 			} else {
 				IconsCache cache = ctx.getMyApplication().getIconsCache();
 				if (isParentWorld(group) || isParentWorld(group.getParentGroup())) {
-					iconLeft = cache.getContentIcon(R.drawable.ic_world_globe_dark);
+					iconLeft = cache.getThemedIcon(R.drawable.ic_world_globe_dark);
 				} else {
 					DownloadResourceGroup ggr = group
 							.getSubGroupById(DownloadResourceGroupType.REGION_MAPS.getDefaultId());
-					iconLeft = cache.getContentIcon(R.drawable.ic_map);
+					iconLeft = cache.getThemedIcon(R.drawable.ic_map);
 					if (ggr != null && ggr.getIndividualResources() != null) {
 						IndexItem item = null;
 						for (IndexItem ii : ggr.getIndividualResources()) {
@@ -399,7 +437,7 @@ public class DownloadResourceGroupFragment extends DialogFragment implements Dow
 				LayoutInflater inflater = LayoutInflater.from(ctx);
 				v = inflater.inflate(R.layout.download_item_list_section, parent, false);
 			}
-			TextView nameView = ((TextView) v.findViewById(R.id.section_name));
+			TextView nameView = ((TextView) v.findViewById(R.id.title));
 			nameView.setText(section);
 			v.setOnClickListener(null);
 			TypedValue typedValue = new TypedValue();
