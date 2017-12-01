@@ -1,17 +1,23 @@
 package net.osmand.plus.helpers;
 
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.Application;
 import android.app.ProgressDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
 import android.content.Intent;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
+import android.support.v7.widget.AppCompatCheckBox;
 import android.support.v7.widget.ListPopupWindow;
 import android.support.v7.widget.SwitchCompat;
 import android.text.SpannableString;
@@ -24,55 +30,82 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.AxisBase;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.MarkerView;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.ChartData;
+import com.github.mikephil.charting.data.DataSet;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.formatter.IAxisValueFormatter;
+import com.github.mikephil.charting.formatter.IFillFormatter;
+import com.github.mikephil.charting.highlight.Highlight;
+import com.github.mikephil.charting.interfaces.dataprovider.LineDataProvider;
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
+import com.github.mikephil.charting.utils.MPPointF;
+
 import net.osmand.AndroidUtils;
 import net.osmand.CallbackWithObject;
 import net.osmand.IndexConstants;
 import net.osmand.plus.ContextMenuAdapter;
 import net.osmand.plus.ContextMenuItem;
+import net.osmand.plus.GPXDatabase.GpxDataItem;
 import net.osmand.plus.GPXUtilities;
+import net.osmand.plus.GPXUtilities.Elevation;
 import net.osmand.plus.GPXUtilities.GPXFile;
 import net.osmand.plus.GPXUtilities.GPXTrackAnalysis;
+import net.osmand.plus.GPXUtilities.Speed;
 import net.osmand.plus.GPXUtilities.TrkSegment;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
 import net.osmand.plus.IconsCache;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
-import net.osmand.plus.Version;
 import net.osmand.plus.activities.ActivityResultListener;
 import net.osmand.plus.activities.ActivityResultListener.OnActivityResultListener;
 import net.osmand.plus.activities.MapActivity;
+import net.osmand.plus.activities.PluginActivity;
 import net.osmand.plus.activities.SettingsActivity;
 import net.osmand.plus.dialogs.ConfigureMapMenu;
 import net.osmand.plus.dialogs.ConfigureMapMenu.AppearanceListItem;
 import net.osmand.plus.dialogs.ConfigureMapMenu.GpxAppearanceAdapter;
+import net.osmand.plus.monitoring.OsmandMonitoringPlugin;
 import net.osmand.render.RenderingRuleProperty;
 import net.osmand.render.RenderingRulesStorage;
 import net.osmand.util.Algorithms;
+import net.osmand.util.MapUtils;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.text.DateFormat;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.github.mikephil.charting.components.XAxis.XAxisPosition.BOTTOM;
+import static net.osmand.plus.OsmAndFormatter.FEET_IN_ONE_METER;
+import static net.osmand.plus.OsmAndFormatter.METERS_IN_KILOMETER;
+import static net.osmand.plus.OsmAndFormatter.METERS_IN_ONE_MILE;
+import static net.osmand.plus.OsmAndFormatter.METERS_IN_ONE_NAUTICALMILE;
+import static net.osmand.plus.OsmAndFormatter.YARDS_IN_ONE_METER;
 import static net.osmand.plus.dialogs.ConfigureMapMenu.CURRENT_TRACK_COLOR_ATTR;
 import static net.osmand.plus.dialogs.ConfigureMapMenu.CURRENT_TRACK_WIDTH_ATTR;
-import static net.osmand.plus.dialogs.ConfigureMapMenu.refreshMapComplete;
+import static net.osmand.plus.download.DownloadActivity.formatKb;
 import static net.osmand.plus.download.DownloadActivity.formatMb;
 
 public class GpxUiHelper {
@@ -178,8 +211,8 @@ public class GpxUiHelper {
 			Toast.makeText(activity, R.string.gpx_files_not_found, Toast.LENGTH_LONG).show();
 		}
 		allGpxList.add(0, new GPXInfo(activity.getString(R.string.show_current_gpx_title), 0, 0));
-		final ContextMenuAdapter adapter = createGpxContextMenuAdapter(allGpxList, selectedGpxList, true);
 
+		final ContextMenuAdapter adapter = createGpxContextMenuAdapter(allGpxList, selectedGpxList, true);
 		return createDialog(activity, true, true, true, callbackWithObject, allGpxList, adapter);
 	}
 
@@ -202,12 +235,15 @@ public class GpxUiHelper {
 		return null;
 	}
 
-	public static AlertDialog selectSingleGPXFile(final Activity activity,
-											final boolean showCurrentGpx, final CallbackWithObject<GPXFile[]> callbackWithObject) {
+	public static AlertDialog selectSingleGPXFile(final Activity activity, boolean showCurrentGpx,
+												  final CallbackWithObject<GPXFile[]> callbackWithObject) {
 		OsmandApplication app = (OsmandApplication) activity.getApplication();
 		int gpxDirLength = app.getAppPath(IndexConstants.GPX_INDEX_DIR).getAbsolutePath().length();
 		List<SelectedGpxFile> selectedGpxFiles = app.getSelectedGpxHelper().getSelectedGPXFiles();
 		final List<GPXInfo> list = new ArrayList<>(selectedGpxFiles.size() + 1);
+		if (OsmandPlugin.getEnabledPlugin(OsmandMonitoringPlugin.class) == null) {
+			showCurrentGpx = false;
+		}
 		if (!selectedGpxFiles.isEmpty() || showCurrentGpx) {
 			if (showCurrentGpx) {
 				list.add(new GPXInfo(activity.getString(R.string.shared_string_currently_recording_track), 0, 0));
@@ -387,12 +423,13 @@ public class GpxUiHelper {
 		final DateFormat dateFormat = android.text.format.DateFormat.getMediumDateFormat(activity);
 		final File dir = app.getAppPath(IndexConstants.GPX_INDEX_DIR);
 		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-		final int layout = R.layout.list_item_with_checkbox;
-		final int switchLayout = R.layout.list_item_with_switch;
+		final int layout = R.layout.gpx_track_item;
 		final Map<String, String> gpxAppearanceParams = new HashMap<>();
 
 		final ArrayAdapter<String> listAdapter = new ArrayAdapter<String>(activity, layout, R.id.title,
 				adapter.getItemNames()) {
+
+			List<GpxDataItem> dataItems = null;
 
 			@Override
 			public int getItemViewType(int position) {
@@ -404,89 +441,63 @@ public class GpxUiHelper {
 				return 2;
 			}
 
+			private GpxDataItem getDataItem(GPXInfo info) {
+				if (dataItems != null) {
+					for (GpxDataItem item : dataItems) {
+						if (item.getFile().getAbsolutePath().endsWith(info.fileName)) {
+							return item;
+						}
+					}
+				}
+				return null;
+			}
+
 			@Override
 			public View getView(final int position, View convertView, ViewGroup parent) {
 				// User super class to create the View
 				View v = convertView;
+				boolean checkLayout = getItemViewType(position) == 0;
 				if (v == null) {
-					if (getItemViewType(position) == 0) {
-						v = activity.getLayoutInflater().inflate(layout, null);
-					} else {
-						v = activity.getLayoutInflater().inflate(switchLayout, null);
-					}
+					v = activity.getLayoutInflater().inflate(layout, null);
 				}
 
-				TextView tv = (TextView) v.findViewById(R.id.title);
-				TextView dv = (TextView) v.findViewById(R.id.description);
+				if (dataItems == null) {
+					dataItems = app.getGpxDatabase().getItems();
+				}
+
 				final ContextMenuItem item = adapter.getItem(position);
-
-				if (showCurrentGpx && position == 0) {
-					tv.setText(item.getTitle());
-					dv.setText(OsmAndFormatter.getFormattedDistance(app.getSavingTrackHelper().getDistance(), app));
-					final SwitchCompat ch = ((SwitchCompat) v.findViewById(R.id.toggle_item));
-					ch.setOnCheckedChangeListener(null);
-					ch.setChecked(item.getSelected());
-					ch.setOnCheckedChangeListener(new OnCheckedChangeListener() {
-						@Override
-						public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-							item.setSelected(isChecked);
-						}
-					});
-					return v;
-				}
-
-				tv.setText(item.getTitle().replace("/", " • "));
 				GPXInfo info = list.get(position);
-				StringBuilder sb = new StringBuilder();
-				if (info.getLastModified() > 0) {
-					sb.append(dateFormat.format(info.getLastModified()));
-				}
-				if (info.getFileSize() >= 0) {
-					if (sb.length() > 0) {
-						sb.append(" • ");
-					}
-					long fileSizeKB = info.getFileSize() / 1000;
-					if (info.getFileSize() < 5000) {
-						sb.append(info.getFileSize()).append(" B");
-					} else if (fileSizeKB > 100) {
-						sb.append(formatMb.format(new Object[]{(float) fileSizeKB / (1 << 10)}));
-					} else {
-						sb.append(fileSizeKB).append(" kB");
-					}
-				}
-				dv.setText(sb.toString());
+				updateGpxInfoView(v, item, info, getDataItem(info), showCurrentGpx && position == 0, app);
 
-				/*
-				final ArrayAdapter<String> arrayAdapter = this;
-				iconView.setOnClickListener(new View.OnClickListener() {
-					@Override
-					public void onClick(View v) {
-						int nline = item.getTitle().indexOf('\n');
-						if (nline == -1) {
-							String fileName = list.get(position).getFileName();
-							setDescripionInDialog(arrayAdapter, adapter, activity, dir, fileName, position);
-						} else {
-							item.setTitle(item.getTitle().substring(0, nline));
-							arrayAdapter.notifyDataSetInvalidated();
-						}
-					}
-
-				});
-				*/
-
-
-				final CheckBox ch = ((CheckBox) v.findViewById(R.id.toggle_item));
 				if (item.getSelected() == null) {
-					ch.setVisibility(View.INVISIBLE);
+					v.findViewById(R.id.check_item).setVisibility(View.GONE);
 				} else {
-					ch.setOnCheckedChangeListener(null);
-					ch.setChecked(item.getSelected());
-					ch.setOnCheckedChangeListener(new OnCheckedChangeListener() {
-						@Override
-						public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-							item.setSelected(isChecked);
-						}
-					});
+					if (checkLayout) {
+						final AppCompatCheckBox ch = ((AppCompatCheckBox) v.findViewById(R.id.toggle_checkbox_item));
+						ch.setVisibility(View.VISIBLE);
+						v.findViewById(R.id.toggle_item).setVisibility(View.GONE);
+						ch.setOnCheckedChangeListener(null);
+						ch.setChecked(item.getSelected());
+						ch.setOnCheckedChangeListener(new OnCheckedChangeListener() {
+							@Override
+							public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+								item.setSelected(isChecked);
+							}
+						});
+					} else {
+						final SwitchCompat ch = ((SwitchCompat) v.findViewById(R.id.toggle_item));
+						ch.setVisibility(View.VISIBLE);
+						v.findViewById(R.id.toggle_checkbox_item).setVisibility(View.GONE);
+						ch.setOnCheckedChangeListener(null);
+						ch.setChecked(item.getSelected());
+						ch.setOnCheckedChangeListener(new OnCheckedChangeListener() {
+							@Override
+							public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+								item.setSelected(isChecked);
+							}
+						});
+					}
+					v.findViewById(R.id.check_item).setVisibility(View.VISIBLE);
 				}
 				return v;
 			}
@@ -533,7 +544,8 @@ public class GpxUiHelper {
 							popup.setVerticalOffset(AndroidUtils.dpToPx(activity, -48f));
 							popup.setHorizontalOffset(AndroidUtils.dpToPx(activity, -6f));
 							final GpxAppearanceAdapter gpxApprAdapter = new GpxAppearanceAdapter(activity,
-									gpxAppearanceParams.containsKey(CURRENT_TRACK_COLOR_ATTR) ? gpxAppearanceParams.get(CURRENT_TRACK_COLOR_ATTR) : prefColor.get());
+									gpxAppearanceParams.containsKey(CURRENT_TRACK_COLOR_ATTR) ? gpxAppearanceParams.get(CURRENT_TRACK_COLOR_ATTR) : prefColor.get(),
+									GpxAppearanceAdapter.GpxAppearanceAdapterType.TRACK_WIDTH_COLOR);
 							popup.setAdapter(gpxApprAdapter);
 							popup.setOnItemClickListener(new AdapterView.OnItemClickListener() {
 
@@ -632,6 +644,25 @@ public class GpxUiHelper {
 					ContextMenuItem item = adapter.getItem(position);
 					item.setSelected(!item.getSelected());
 					listAdapter.notifyDataSetInvalidated();
+					if (position == 0 && showCurrentGpx && item.getSelected()) {
+						OsmandMonitoringPlugin monitoringPlugin = OsmandPlugin.getEnabledPlugin(OsmandMonitoringPlugin.class);
+						if (monitoringPlugin == null) {
+							AlertDialog.Builder confirm = new AlertDialog.Builder(activity);
+							confirm.setPositiveButton(R.string.shared_string_ok, new DialogInterface.OnClickListener() {
+								@Override
+								public void onClick(DialogInterface dialog, int which) {
+									Intent intent = new Intent(activity, PluginActivity.class);
+									intent.putExtra(PluginActivity.EXTRA_PLUGIN_ID, OsmandMonitoringPlugin.ID);
+									activity.startActivity(intent);
+								}
+							});
+							confirm.setNegativeButton(R.string.shared_string_cancel, null);
+							confirm.setMessage(activity.getString(R.string.enable_plugin_monitoring_services));
+							confirm.show();
+						} else if (!app.getSettings().SAVE_GLOBAL_TRACK_TO_GPX.get()) {
+							monitoringPlugin.controlDialog(activity, false);
+						}
+					}
 				} else {
 					dlg.dismiss();
 					if (showCurrentGpx && position == 0) {
@@ -671,6 +702,73 @@ public class GpxUiHelper {
 			// Unknown reason but on some devices fail
 		}
 		return dlg;
+	}
+
+	public static void updateGpxInfoView(View v, ContextMenuItem item, GPXInfo info, GpxDataItem dataItem, boolean currentlyRecordingTrack, OsmandApplication app) {
+		TextView viewName = ((TextView) v.findViewById(R.id.name));
+		viewName.setText(item.getTitle().replace("/", " • ").trim());
+		ImageView icon = (ImageView) v.findViewById(R.id.icon);
+		icon.setVisibility(View.GONE);
+		//icon.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_action_polygom_dark));
+		viewName.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
+
+		GPXTrackAnalysis analysis = null;
+		if (currentlyRecordingTrack) {
+			analysis = app.getSavingTrackHelper().getCurrentTrack().getTrackAnalysis();
+		} else if (dataItem != null) {
+			analysis = dataItem.getAnalysis();
+		}
+
+		boolean sectionRead = analysis == null;
+		if (sectionRead) {
+			v.findViewById(R.id.read_section).setVisibility(View.GONE);
+			v.findViewById(R.id.unknown_section).setVisibility(View.VISIBLE);
+			String date = "";
+			String size = "";
+			if (info.getFileSize() >= 0) {
+				if (info.getFileSize() > (100 * (1 << 10))) {
+					size = formatMb.format(new Object[]{(float) info.getFileSize() / (1 << 20)});
+				} else {
+					size = formatKb.format(new Object[]{(float) info.getFileSize() / (1 << 10)});
+				}
+			}
+			DateFormat df = app.getResourceManager().getDateFormat();
+			long fd = info.getLastModified();
+			if (fd > 0) {
+				date = (df.format(new Date(fd)));
+			}
+			TextView sizeText = (TextView) v.findViewById(R.id.date_and_size_details);
+			sizeText.setText(date + " \u2022 " + size);
+
+		} else {
+			v.findViewById(R.id.read_section).setVisibility(View.VISIBLE);
+			v.findViewById(R.id.unknown_section).setVisibility(View.GONE);
+			ImageView distanceI = (ImageView) v.findViewById(R.id.distance_icon);
+			distanceI.setVisibility(View.VISIBLE);
+			distanceI.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_small_distance));
+			ImageView pointsI = (ImageView) v.findViewById(R.id.points_icon);
+			pointsI.setVisibility(View.VISIBLE);
+			pointsI.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_small_point));
+			ImageView timeI = (ImageView) v.findViewById(R.id.time_icon);
+			timeI.setVisibility(View.VISIBLE);
+			timeI.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_small_time));
+			TextView time = (TextView) v.findViewById(R.id.time);
+			TextView distance = (TextView) v.findViewById(R.id.distance);
+			TextView pointsCount = (TextView) v.findViewById(R.id.points_count);
+			pointsCount.setText(analysis.wptPoints + "");
+			distance.setText(OsmAndFormatter.getFormattedDistance(analysis.totalDistance, app));
+
+			if (analysis.isTimeSpecified()) {
+				time.setText(Algorithms.formatDuration((int) (analysis.timeSpan / 1000), app.accessibilityEnabled()) + "");
+			} else {
+				time.setText("");
+			}
+		}
+
+		TextView descr = ((TextView) v.findViewById(R.id.description));
+		descr.setVisibility(View.GONE);
+
+		v.findViewById(R.id.check_item).setVisibility(View.GONE);
 	}
 
 	@TargetApi(Build.VERSION_CODES.KITKAT)
@@ -758,7 +856,52 @@ public class GpxUiHelper {
 				if (res != 0) {
 					return res;
 				}
-				return -i1.getFileName().compareTo(i2.getFileName());
+
+				String name1 = i1.getFileName();
+				String name2 = i2.getFileName();
+				int d1 = depth(name1);
+				int d2 = depth(name2);
+				if (d1 != d2) {
+					return d1 - d2;
+				}
+				int lastSame = 0;
+				for (int i = 0; i < name1.length() && i < name2.length(); i++) {
+					if (name1.charAt(i) != name2.charAt(i)) {
+						break;
+					}
+					if (name1.charAt(i) == '/') {
+						lastSame = i + 1;
+					}
+				}
+
+				boolean isDigitStarts1 = isLastSameStartsWithDigit(name1, lastSame);
+				boolean isDigitStarts2 = isLastSameStartsWithDigit(name2, lastSame);
+				res = isDigitStarts1 == isDigitStarts2 ? 0 : isDigitStarts1 ? -1 : 1;
+				if (res != 0) {
+					return res;
+				}
+				if (isDigitStarts1) {
+					return -name1.compareToIgnoreCase(name2);
+				}
+				return name1.compareToIgnoreCase(name2);
+			}
+
+			private int depth(String name1) {
+				int d = 0;
+				for (int i = 0; i < name1.length(); i++) {
+					if (name1.charAt(i) == '/') {
+						d++;
+					}
+				}
+				return d;
+			}
+
+			private boolean isLastSameStartsWithDigit(String name1, int lastSame) {
+				if (name1.length() > lastSame) {
+					return Character.isDigit(name1.charAt(lastSame));
+				}
+
+				return false;
 			}
 		});
 		return list;
@@ -819,13 +962,904 @@ public class GpxUiHelper {
 		}, "Loading gpx").start(); //$NON-NLS-1$
 	}
 
+	public static void setupGPXChart(OsmandApplication ctx, LineChart mChart, int yLabelsCount) {
+		OsmandSettings settings = ctx.getSettings();
+		boolean light = settings.isLightContent();
+
+		if (android.os.Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+			mChart.setHardwareAccelerationEnabled(false);
+		} else {
+			mChart.setHardwareAccelerationEnabled(true);
+		}
+		mChart.setTouchEnabled(true);
+		mChart.setDragEnabled(true);
+		mChart.setScaleEnabled(true);
+		mChart.setPinchZoom(true);
+		mChart.setScaleYEnabled(false);
+		mChart.setAutoScaleMinMaxEnabled(true);
+		mChart.setDrawBorders(false);
+		mChart.getDescription().setEnabled(false);
+		mChart.setMaxVisibleValueCount(10);
+		mChart.setMinOffset(0f);
+		mChart.setDragDecelerationEnabled(false);
+
+		mChart.setExtraTopOffset(24f);
+		mChart.setExtraBottomOffset(16f);
+
+		// create a custom MarkerView (extend MarkerView) and specify the layout
+		// to use for it
+		GPXMarkerView mv = new GPXMarkerView(mChart.getContext());
+		mv.setChartView(mChart); // For bounds control
+		mChart.setMarker(mv); // Set the marker to the chart
+		mChart.setDrawMarkers(true);
+
+		XAxis xAxis = mChart.getXAxis();
+		xAxis.setDrawAxisLine(false);
+		xAxis.setDrawGridLines(true);
+		xAxis.setGridLineWidth(1.5f);
+		xAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_black_grid));
+		xAxis.enableGridDashedLine(25f, Float.MAX_VALUE, 0f);
+		xAxis.setPosition(BOTTOM);
+		xAxis.setTextColor(light ? mChart.getResources().getColor(R.color.secondary_text_light) : mChart.getResources().getColor(R.color.secondary_text_dark));
+
+		YAxis yAxis = mChart.getAxisLeft();
+		yAxis.enableGridDashedLine(10f, 5f, 0f);
+		yAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.divider_color));
+		yAxis.setDrawAxisLine(false);
+		yAxis.setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART);
+		yAxis.setXOffset(16f);
+		yAxis.setYOffset(-6f);
+		yAxis.setLabelCount(yLabelsCount);
+		yAxis.setTextColor(light ? mChart.getResources().getColor(R.color.secondary_text_light) : mChart.getResources().getColor(R.color.secondary_text_dark));
+
+		yAxis = mChart.getAxisRight();
+		yAxis.enableGridDashedLine(10f, 5f, 0f);
+		yAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.divider_color));
+		yAxis.setDrawAxisLine(false);
+		yAxis.setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART);
+		yAxis.setXOffset(16f);
+		yAxis.setYOffset(-6f);
+		yAxis.setLabelCount(yLabelsCount);
+		yAxis.setTextColor(light ? mChart.getResources().getColor(R.color.secondary_text_light) : mChart.getResources().getColor(R.color.secondary_text_dark));
+		yAxis.setEnabled(false);
+
+		Legend legend = mChart.getLegend();
+		legend.setEnabled(false);
+	}
+
+	private static float setupXAxisDistance(OsmandApplication ctx, XAxis xAxis, float meters) {
+		OsmandSettings settings = ctx.getSettings();
+		OsmandSettings.MetricsConstants mc = settings.METRIC_SYSTEM.get();
+		float divX;
+
+		String format1 = "{0,number,0.#} ";
+		String format2 = "{0,number,0.##} ";
+		String fmt = null;
+		float granularity = 1f;
+		int mainUnitStr;
+		float mainUnitInMeters;
+		if (mc == OsmandSettings.MetricsConstants.KILOMETERS_AND_METERS) {
+			mainUnitStr = R.string.km;
+			mainUnitInMeters = METERS_IN_KILOMETER;
+		} else if (mc == OsmandSettings.MetricsConstants.NAUTICAL_MILES) {
+			mainUnitStr = R.string.nm;
+			mainUnitInMeters = METERS_IN_ONE_NAUTICALMILE;
+		} else {
+			mainUnitStr = R.string.mile;
+			mainUnitInMeters = METERS_IN_ONE_MILE;
+		}
+		if (meters > 9.99f * mainUnitInMeters) {
+			fmt = format1;
+			granularity = .1f;
+		}
+		if (meters >= 100 * mainUnitInMeters ||
+				meters > 9.99f * mainUnitInMeters ||
+				meters > 0.999f * mainUnitInMeters ||
+				mc == OsmandSettings.MetricsConstants.MILES_AND_FEET && meters > 0.249f * mainUnitInMeters ||
+				mc == OsmandSettings.MetricsConstants.MILES_AND_METERS && meters > 0.249f * mainUnitInMeters ||
+				mc == OsmandSettings.MetricsConstants.MILES_AND_YARDS && meters > 0.249f * mainUnitInMeters ||
+				mc == OsmandSettings.MetricsConstants.NAUTICAL_MILES && meters > 0.99f * mainUnitInMeters) {
+
+			divX = mainUnitInMeters;
+			if (fmt == null) {
+				fmt = format2;
+				granularity = .01f;
+			}
+		} else {
+			fmt = null;
+			granularity = 1f;
+			if (mc == OsmandSettings.MetricsConstants.KILOMETERS_AND_METERS || mc == OsmandSettings.MetricsConstants.MILES_AND_METERS) {
+				divX = 1f;
+				mainUnitStr = R.string.m;
+			} else if (mc == OsmandSettings.MetricsConstants.MILES_AND_FEET) {
+				divX = 1f / FEET_IN_ONE_METER;
+				mainUnitStr = R.string.foot;
+			} else if (mc == OsmandSettings.MetricsConstants.MILES_AND_YARDS) {
+				divX = 1f / YARDS_IN_ONE_METER;
+				mainUnitStr = R.string.yard;
+			} else {
+				divX = 1f;
+				mainUnitStr = R.string.m;
+			}
+		}
+
+		final String formatX = fmt;
+		final String mainUnitX = ctx.getString(mainUnitStr);
+
+		xAxis.setGranularity(granularity);
+		xAxis.setValueFormatter(new IAxisValueFormatter() {
+
+			@Override
+			public String getFormattedValue(float value, AxisBase axis) {
+				if (!Algorithms.isEmpty(formatX)) {
+					return MessageFormat.format(formatX + mainUnitX, value);
+				} else {
+					return (int)value + " " + mainUnitX;
+				}
+			}
+		});
+
+		return divX;
+	}
+
+	private static float setupXAxisTime(XAxis xAxis, long timeSpan) {
+
+		final boolean useHours = timeSpan / 3600000 > 0;
+		xAxis.setGranularity(1f);
+		xAxis.setValueFormatter(new IAxisValueFormatter() {
+
+			@Override
+			public String getFormattedValue(float value, AxisBase axis) {
+				int seconds = (int)value;
+				if (useHours) {
+					int hours = seconds / (60 * 60);
+					int minutes = (seconds / 60) % 60;
+					int sec = seconds % 60;
+					return hours + ":" + (minutes < 10 ? "0" + minutes : minutes) + ":" + (sec < 10 ? "0" + sec : sec);
+				} else {
+					int minutes = (seconds / 60) % 60;
+					int sec = seconds % 60;
+					return (minutes < 10 ? "0" + minutes : minutes) + ":" + (sec < 10 ? "0" + sec : sec);
+				}
+			}
+		});
+
+		return 1f;
+	}
+
+	private static List<Entry> calculateElevationArray(GPXTrackAnalysis analysis, GPXDataSetAxisType axisType,
+													   float divX, float convEle) {
+		List<Entry> values = new ArrayList<>();
+		List<Elevation> elevationData = analysis.elevationData;
+		float nextX = 0;
+		float nextY;
+		float elev;
+		float prevElevOrig = -80000;
+		float prevElev = 0;
+		int i = -1;
+		int lastIndex = elevationData.size() - 1;
+		Entry lastEntry = null;
+		float lastXSameY = -1;
+		boolean hasSameY = false;
+		float x;
+		for (Elevation e : elevationData) {
+			i++;
+			x = axisType == GPXDataSetAxisType.TIME ? e.time : e.distance;
+			if (x > 0) {
+				nextX += x / divX;
+				if (!Float.isNaN(e.elevation)) {
+					elev = e.elevation;
+					if (prevElevOrig != -80000) {
+						if (elev > prevElevOrig) {
+							elev -= 1f;
+						} else if (prevElevOrig == elev && i < lastIndex) {
+							hasSameY = true;
+							lastXSameY = nextX;
+							continue;
+						}
+						if (prevElev == elev && i < lastIndex) {
+							hasSameY = true;
+							lastXSameY = nextX;
+							continue;
+						}
+						if (hasSameY) {
+							values.add(new Entry(lastXSameY, lastEntry.getY()));
+						}
+						hasSameY = false;
+					}
+					prevElevOrig = e.elevation;
+					prevElev = elev;
+					nextY = elev * convEle;
+					lastEntry = new Entry(nextX, nextY);
+					values.add(lastEntry);
+				}
+			}
+		}
+		return values;
+	}
+
+	public static OrderedLineDataSet createGPXElevationDataSet(OsmandApplication ctx, LineChart mChart,
+															   GPXTrackAnalysis analysis,
+															   GPXDataSetAxisType axisType,
+															   boolean useRightAxis, boolean drawFilled) {
+		OsmandSettings settings = ctx.getSettings();
+		OsmandSettings.MetricsConstants mc = settings.METRIC_SYSTEM.get();
+		boolean useFeet = (mc == OsmandSettings.MetricsConstants.MILES_AND_FEET) || (mc == OsmandSettings.MetricsConstants.MILES_AND_YARDS);
+		boolean light = settings.isLightContent();
+		final float convEle = useFeet ? 3.28084f : 1.0f;
+
+		float divX;
+		XAxis xAxis = mChart.getXAxis();
+		if (axisType == GPXDataSetAxisType.TIME && analysis.isTimeSpecified()) {
+			divX = setupXAxisTime(xAxis, analysis.timeSpan);
+		} else {
+			divX = setupXAxisDistance(ctx, xAxis, analysis.totalDistance);
+		}
+
+		final String mainUnitY = useFeet ? ctx.getString(R.string.foot) : ctx.getString(R.string.m);
+
+		YAxis yAxis;
+		if (useRightAxis) {
+			yAxis = mChart.getAxisRight();
+			yAxis.setEnabled(true);
+		} else {
+			yAxis = mChart.getAxisLeft();
+		}
+		yAxis.setTextColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_blue_label));
+		yAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_blue_grid));
+		yAxis.setGranularity(1f);
+		yAxis.resetAxisMinimum();
+		yAxis.setValueFormatter(new IAxisValueFormatter() {
+
+			@Override
+			public String getFormattedValue(float value, AxisBase axis) {
+				return (int)value + " " + mainUnitY;
+			}
+		});
+
+		List<Entry> values = calculateElevationArray(analysis, axisType, divX, convEle);
+
+		OrderedLineDataSet dataSet = new OrderedLineDataSet(values, "", GPXDataSetType.ALTITUDE, axisType);
+		dataSet.priority = (float) (analysis.avgElevation - analysis.minElevation) * convEle;
+		dataSet.divX = divX;
+		dataSet.mulY = convEle;
+		dataSet.divY = Float.NaN;
+		dataSet.units = mainUnitY;
+
+		dataSet.setColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_blue));
+		dataSet.setLineWidth(1f);
+		if (drawFilled) {
+			dataSet.setFillAlpha(128);
+			dataSet.setFillColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_blue));
+			dataSet.setDrawFilled(true);
+		} else {
+			dataSet.setDrawFilled(false);
+		}
+
+		dataSet.setDrawValues(false);
+		dataSet.setValueTextSize(9f);
+		dataSet.setFormLineWidth(1f);
+		dataSet.setFormSize(15.f);
+
+		dataSet.setDrawCircles(false);
+		dataSet.setDrawCircleHole(false);
+
+		dataSet.setHighlightEnabled(true);
+		dataSet.setDrawVerticalHighlightIndicator(true);
+		dataSet.setDrawHorizontalHighlightIndicator(false);
+		dataSet.setHighLightColor(light ? mChart.getResources().getColor(R.color.secondary_text_light) : mChart.getResources().getColor(R.color.secondary_text_dark));
+
+		//dataSet.setMode(LineDataSet.Mode.HORIZONTAL_BEZIER);
+
+		dataSet.setFillFormatter(new IFillFormatter() {
+			@Override
+			public float getFillLinePosition(ILineDataSet dataSet, LineDataProvider dataProvider) {
+				return dataProvider.getYChartMin();
+			}
+		});
+		if (useRightAxis) {
+			dataSet.setAxisDependency(YAxis.AxisDependency.RIGHT);
+		}
+		return dataSet;
+	}
+
+	public static OrderedLineDataSet createGPXSpeedDataSet(OsmandApplication ctx, LineChart mChart,
+														   GPXTrackAnalysis analysis,
+														   GPXDataSetAxisType axisType,
+														   boolean useRightAxis, boolean drawFilled) {
+		OsmandSettings settings = ctx.getSettings();
+		boolean light = settings.isLightContent();
+
+		float divX;
+		XAxis xAxis = mChart.getXAxis();
+		if (axisType == GPXDataSetAxisType.TIME && analysis.isTimeSpecified()) {
+			divX = setupXAxisTime(xAxis, analysis.timeSpan);
+		} else {
+			divX = setupXAxisDistance(ctx, xAxis, analysis.totalDistance);
+		}
+
+		OsmandSettings.SpeedConstants sps = settings.SPEED_SYSTEM.get();
+		float mulSpeed = Float.NaN;
+		float divSpeed = Float.NaN;
+		final String mainUnitY = sps.toShortString(ctx);
+		if (sps == OsmandSettings.SpeedConstants.KILOMETERS_PER_HOUR) {
+			mulSpeed = 3.6f;
+		} else if (sps == OsmandSettings.SpeedConstants.MILES_PER_HOUR) {
+			mulSpeed = 3.6f * METERS_IN_KILOMETER / METERS_IN_ONE_MILE;
+		} else if (sps == OsmandSettings.SpeedConstants.NAUTICALMILES_PER_HOUR) {
+			mulSpeed = 3.6f * METERS_IN_KILOMETER / METERS_IN_ONE_NAUTICALMILE;
+		} else if (sps == OsmandSettings.SpeedConstants.MINUTES_PER_KILOMETER) {
+			divSpeed = METERS_IN_KILOMETER / 60;
+		} else if (sps == OsmandSettings.SpeedConstants.MINUTES_PER_MILE) {
+			divSpeed = METERS_IN_ONE_MILE / 60;
+		} else {
+			mulSpeed = 1f;
+		}
+
+		YAxis yAxis;
+		if (useRightAxis) {
+			yAxis = mChart.getAxisRight();
+			yAxis.setEnabled(true);
+		} else {
+			yAxis = mChart.getAxisLeft();
+		}
+		if (analysis.hasSpeedInTrack()) {
+			yAxis.setTextColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_orange_label));
+			yAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_orange_grid));
+		} else {
+			yAxis.setTextColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_red_label));
+			yAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_red_grid));
+		}
+
+		yAxis.setAxisMinimum(0f);
+
+		ArrayList<Entry> values = new ArrayList<>();
+		List<Speed> speedData = analysis.speedData;
+		float nextX = 0;
+		float nextY;
+		float x;
+		for (Speed s : speedData) {
+			x = axisType == GPXDataSetAxisType.TIME ? s.time : s.distance;
+			if (x > 0) {
+				if (axisType == GPXDataSetAxisType.TIME && x > 60) {
+					values.add(new Entry(nextX + 1, 0));
+					values.add(new Entry(nextX + x - 1, 0));
+				}
+				nextX += x / divX;
+				if (Float.isNaN(divSpeed)) {
+					nextY = s.speed * mulSpeed;
+				} else {
+					nextY = divSpeed / s.speed;
+				}
+				if (nextY < 0 || Float.isInfinite(nextY)) {
+					nextY = 0;
+				}
+				values.add(new Entry(nextX, nextY));
+			}
+		}
+
+		OrderedLineDataSet dataSet = new OrderedLineDataSet(values, "", GPXDataSetType.SPEED, axisType);
+
+		String format = null;
+		if (dataSet.getYMax() < 3) {
+			format = "{0,number,0.#} ";
+		}
+		final String formatY = format;
+		yAxis.setValueFormatter(new IAxisValueFormatter() {
+
+			@Override
+			public String getFormattedValue(float value, AxisBase axis) {
+				if (!Algorithms.isEmpty(formatY)) {
+					return MessageFormat.format(formatY + mainUnitY, value);
+				} else {
+					return (int)value + " " + mainUnitY;
+				}
+			}
+		});
+
+		if (Float.isNaN(divSpeed)) {
+			dataSet.priority = analysis.avgSpeed * mulSpeed;
+		} else {
+			dataSet.priority = divSpeed / analysis.avgSpeed;
+		}
+		dataSet.divX = divX;
+		if (Float.isNaN(divSpeed)) {
+			dataSet.mulY = mulSpeed;
+			dataSet.divY = Float.NaN;
+		} else {
+			dataSet.divY = divSpeed;
+			dataSet.mulY = Float.NaN;
+		}
+		dataSet.units = mainUnitY;
+
+		if (analysis.hasSpeedInTrack()) {
+			dataSet.setColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_orange));
+		} else {
+			dataSet.setColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_red));
+		}
+		dataSet.setLineWidth(1f);
+		if (drawFilled) {
+			dataSet.setFillAlpha(128);
+			if (analysis.hasSpeedInTrack()) {
+				dataSet.setFillColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_orange));
+			} else {
+				dataSet.setFillColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_red));
+			}
+			dataSet.setDrawFilled(true);
+		} else {
+			dataSet.setDrawFilled(false);
+		}
+		dataSet.setDrawValues(false);
+		dataSet.setValueTextSize(9f);
+		dataSet.setFormLineWidth(1f);
+		dataSet.setFormSize(15.f);
+
+		dataSet.setDrawCircles(false);
+		dataSet.setDrawCircleHole(false);
+
+		dataSet.setHighlightEnabled(true);
+		dataSet.setDrawVerticalHighlightIndicator(true);
+		dataSet.setDrawHorizontalHighlightIndicator(false);
+		dataSet.setHighLightColor(light ? mChart.getResources().getColor(R.color.secondary_text_light) : mChart.getResources().getColor(R.color.secondary_text_dark));
+
+		//dataSet.setMode(LineDataSet.Mode.HORIZONTAL_BEZIER);
+
+		if (useRightAxis) {
+			dataSet.setAxisDependency(YAxis.AxisDependency.RIGHT);
+		}
+		return dataSet;
+	}
+
+	public static OrderedLineDataSet createGPXSlopeDataSet(OsmandApplication ctx, LineChart mChart,
+														   GPXTrackAnalysis analysis,
+														   GPXDataSetAxisType axisType,
+														   List<Entry> eleValues,
+														   boolean useRightAxis, boolean drawFilled) {
+		if (axisType == GPXDataSetAxisType.TIME) {
+			return null;
+		}
+		OsmandSettings settings = ctx.getSettings();
+		boolean light = settings.isLightContent();
+		OsmandSettings.MetricsConstants mc = settings.METRIC_SYSTEM.get();
+		boolean useFeet = (mc == OsmandSettings.MetricsConstants.MILES_AND_FEET) || (mc == OsmandSettings.MetricsConstants.MILES_AND_YARDS);
+		final float convEle = useFeet ? 3.28084f : 1.0f;
+		final float totalDistance = analysis.totalDistance;
+
+		XAxis xAxis = mChart.getXAxis();
+		float divX = setupXAxisDistance(ctx, xAxis, analysis.totalDistance);
+
+		final String mainUnitY = "%";
+
+		YAxis yAxis;
+		if (useRightAxis) {
+			yAxis = mChart.getAxisRight();
+			yAxis.setEnabled(true);
+		} else {
+			yAxis = mChart.getAxisLeft();
+		}
+		yAxis.setTextColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_green_label));
+		yAxis.setGridColor(ActivityCompat.getColor(mChart.getContext(), R.color.gpx_chart_green_grid));
+		yAxis.setGranularity(1f);
+		yAxis.resetAxisMinimum();
+		yAxis.setValueFormatter(new IAxisValueFormatter() {
+
+			@Override
+			public String getFormattedValue(float value, AxisBase axis) {
+				return (int)value + " " + mainUnitY;
+			}
+		});
+
+		List<Entry> values;
+		if (eleValues == null) {
+			values = calculateElevationArray(analysis, GPXDataSetAxisType.DISTANCE, 1f, 1f);
+		} else {
+			values = new ArrayList<>(eleValues.size());
+			for (Entry e : eleValues) {
+				values.add(new Entry(e.getX() * divX, e.getY() / convEle));
+			}
+		}
+
+		if (values == null || values.size() == 0) {
+			if (useRightAxis) {
+				yAxis.setEnabled(false);
+			}
+			return null;
+		}
+
+		int lastIndex = values.size() - 1;
+
+		double STEP = 5;
+
+		double[] calculatedDist = new double[(int) (totalDistance / STEP) + 1];
+		double[] calculatedH = new double[(int) (totalDistance / STEP) + 1];
+		int nextW = 0;
+		for (int k = 0; k < calculatedDist.length; k++) {
+			if (k > 0) {
+				calculatedDist[k] = calculatedDist[k - 1] + STEP;
+			}
+			while(nextW < lastIndex && calculatedDist[k] > values.get(nextW).getX()) {
+				nextW ++;
+			}
+			double pd = nextW == 0 ? 0 : values.get(nextW - 1).getX();
+			double ph = nextW == 0 ? values.get(0).getY() : values.get(nextW - 1).getY();
+			calculatedH[k] = ph + (values.get(nextW).getY() - ph) / (values.get(nextW).getX() - pd) * (calculatedDist[k] - pd);
+		}
+
+		double SLOPE_PROXIMITY = 100;
+
+		if (totalDistance - SLOPE_PROXIMITY < 0) {
+			if (useRightAxis) {
+				yAxis.setEnabled(false);
+			}
+			return null;
+		}
+
+		double[] calculatedSlopeDist = new double[(int) ((totalDistance - SLOPE_PROXIMITY) / STEP) + 1];
+		double[] calculatedSlope = new double[(int) ((totalDistance - SLOPE_PROXIMITY) / STEP) + 1];
+
+		int index = (int) ((SLOPE_PROXIMITY / STEP) / 2);
+		for (int k = 0; k < calculatedSlopeDist.length; k++) {
+			calculatedSlopeDist[k] = calculatedDist[index + k];
+			calculatedSlope[k] = (calculatedH[ 2 * index + k] - calculatedH[k]) * 100 / SLOPE_PROXIMITY;
+			if (Double.isNaN(calculatedSlope[k])) {
+				calculatedSlope[k] = 0;
+			}
+		}
+
+		List<Entry> slopeValues = new ArrayList<>(calculatedSlopeDist.length);
+		float prevSlope = -80000;
+		float slope;
+		float x;
+		float lastXSameY = 0;
+		boolean hasSameY = false;
+		Entry lastEntry = null;
+		lastIndex = calculatedSlopeDist.length - 1;
+		for (int i = 0; i < calculatedSlopeDist.length; i++) {
+			x = (float) calculatedSlopeDist[i] / divX;
+			slope = (float) calculatedSlope[i];
+			if (prevSlope != -80000) {
+				if (prevSlope == slope && i < lastIndex) {
+					hasSameY = true;
+					lastXSameY = x;
+					continue;
+				}
+				if (hasSameY) {
+					slopeValues.add(new Entry(lastXSameY, lastEntry.getY()));
+				}
+				hasSameY = false;
+			}
+			prevSlope = slope;
+			lastEntry = new Entry(x, slope);
+			slopeValues.add(lastEntry);
+		}
+
+		OrderedLineDataSet dataSet = new OrderedLineDataSet(slopeValues, "", GPXDataSetType.SLOPE, axisType);
+		dataSet.divX = divX;
+		dataSet.units = mainUnitY;
+
+		dataSet.setColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_green));
+		dataSet.setLineWidth(1f);
+		if (drawFilled) {
+			dataSet.setFillAlpha(128);
+			dataSet.setFillColor(ContextCompat.getColor(mChart.getContext(), R.color.gpx_chart_green));
+			dataSet.setDrawFilled(true);
+		} else {
+			dataSet.setDrawFilled(false);
+		}
+
+		dataSet.setDrawValues(false);
+		dataSet.setValueTextSize(9f);
+		dataSet.setFormLineWidth(1f);
+		dataSet.setFormSize(15.f);
+
+		dataSet.setDrawCircles(false);
+		dataSet.setDrawCircleHole(false);
+
+		dataSet.setHighlightEnabled(true);
+		dataSet.setDrawVerticalHighlightIndicator(true);
+		dataSet.setDrawHorizontalHighlightIndicator(false);
+		dataSet.setHighLightColor(light ? mChart.getResources().getColor(R.color.secondary_text_light) : mChart.getResources().getColor(R.color.secondary_text_dark));
+
+		//dataSet.setMode(LineDataSet.Mode.HORIZONTAL_BEZIER);
+
+		/*
+		dataSet.setFillFormatter(new IFillFormatter() {
+			@Override
+			public float getFillLinePosition(ILineDataSet dataSet, LineDataProvider dataProvider) {
+				return dataProvider.getYChartMin();
+			}
+		});
+		*/
+		if (useRightAxis) {
+			dataSet.setAxisDependency(YAxis.AxisDependency.RIGHT);
+		}
+		return dataSet;
+	}
+
+	public enum GPXDataSetType {
+		ALTITUDE(R.string.altitude, R.drawable.ic_action_altitude_average),
+		SPEED(R.string.map_widget_speed, R.drawable.ic_action_speed),
+		SLOPE(R.string.shared_string_slope, R.drawable.ic_action_altitude_ascent);
+
+		private int stringId;
+		private int imageId;
+
+		private GPXDataSetType(int stringId, int imageId) {
+			this.stringId = stringId;
+			this.imageId = imageId;
+		}
+
+		public String getName(@NonNull Context ctx) {
+			return ctx.getString(stringId);
+		}
+
+		public int getStringId() {
+			return stringId;
+		}
+
+		public int getImageId() {
+			return imageId;
+		}
+
+		public Drawable getImageDrawable(@NonNull OsmandApplication app) {
+			return app.getIconsCache().getThemedIcon(imageId);
+		}
+
+		public static String getName(@NonNull Context ctx, @NonNull GPXDataSetType[] types) {
+			List<String> list = new ArrayList<>();
+			for (GPXDataSetType type : types) {
+				list.add(type.getName(ctx));
+			}
+			Collections.sort(list);
+			StringBuilder sb = new StringBuilder();
+			for (String s : list) {
+				if (sb.length() > 0) {
+					sb.append("/");
+				}
+				sb.append(s);
+			}
+			return sb.toString();
+		}
+
+		public static Drawable getImageDrawable(@NonNull OsmandApplication app, @NonNull GPXDataSetType[] types) {
+			if (types.length > 0) {
+				return types[0].getImageDrawable(app);
+			} else {
+				return null;
+			}
+		}
+	}
+
+	public enum GPXDataSetAxisType {
+		DISTANCE(R.string.distance, R.drawable.ic_action_marker_dark),
+		TIME(R.string.shared_string_time, R.drawable.ic_action_time);
+
+		private int stringId;
+		private int imageId;
+
+		private GPXDataSetAxisType(int stringId, int imageId) {
+			this.stringId = stringId;
+			this.imageId = imageId;
+		}
+
+		public String getName(Context ctx) {
+			return ctx.getString(stringId);
+		}
+
+		public int getStringId() {
+			return stringId;
+		}
+
+		public int getImageId() {
+			return imageId;
+		}
+
+		public Drawable getImageDrawable(OsmandApplication app) {
+			return app.getIconsCache().getThemedIcon(imageId);
+		}
+	}
+
+	public static class OrderedLineDataSet extends LineDataSet {
+
+		private GPXDataSetType dataSetType;
+		private GPXDataSetAxisType dataSetAxisType;
+
+		float priority;
+		String units;
+		float divX = 1f;
+		float divY = 1f;
+		float mulY = 1f;
+
+		OrderedLineDataSet(List<Entry> yVals, String label, GPXDataSetType dataSetType, GPXDataSetAxisType dataSetAxisType) {
+			super(yVals, label);
+			this.dataSetType = dataSetType;
+			this.dataSetAxisType = dataSetAxisType;
+		}
+
+		public GPXDataSetType getDataSetType() {
+			return dataSetType;
+		}
+
+		public GPXDataSetAxisType getDataSetAxisType() {
+			return dataSetAxisType;
+		}
+
+		public float getPriority() {
+			return priority;
+		}
+
+		public float getDivX() {
+			return divX;
+		}
+
+		public float getDivY() {
+			return divY;
+		}
+
+		public float getMulY() {
+			return mulY;
+		}
+
+		public String getUnits() {
+			return units;
+		}
+	}
+
+	@SuppressLint("ViewConstructor")
+	private static class GPXMarkerView extends MarkerView {
+
+		private View textAltView;
+		private View textSpdView;
+		private View textSlpView;
+
+		public GPXMarkerView(Context context) {
+			super(context, R.layout.chart_marker_view);
+			textAltView = findViewById(R.id.text_alt_container);
+			textSpdView = findViewById(R.id.text_spd_container);
+			textSlpView = findViewById(R.id.text_slp_container);
+		}
+
+		// callbacks everytime the MarkerView is redrawn, can be used to update the
+		// content (user-interface)
+		@Override
+		public void refreshContent(Entry e, Highlight highlight) {
+			ChartData chartData = getChartView().getData();
+			if (chartData.getDataSetCount() == 1) {
+				OrderedLineDataSet dataSet = (OrderedLineDataSet) chartData.getDataSetByIndex(0);
+				String value = Integer.toString((int) e.getY()) + " ";
+				String units = dataSet.units;
+				switch (dataSet.getDataSetType()) {
+					case ALTITUDE:
+						((TextView) textAltView.findViewById(R.id.text_alt_value)).setText(value);
+						((TextView) textAltView.findViewById(R.id.text_alt_units)).setText(units);
+						textAltView.setVisibility(VISIBLE);
+						textSpdView.setVisibility(GONE);
+						textSlpView.setVisibility(GONE);
+						break;
+					case SPEED:
+						((TextView) textSpdView.findViewById(R.id.text_spd_value)).setTextColor(dataSet.getColor());
+						((TextView) textSpdView.findViewById(R.id.text_spd_value)).setText(value);
+						((TextView) textSpdView.findViewById(R.id.text_spd_units)).setText(units);
+						textAltView.setVisibility(GONE);
+						textSpdView.setVisibility(VISIBLE);
+						textSlpView.setVisibility(GONE);
+						break;
+					case SLOPE:
+						((TextView) textSlpView.findViewById(R.id.text_slp_value)).setText(value);
+						textAltView.setVisibility(GONE);
+						textSpdView.setVisibility(GONE);
+						textSlpView.setVisibility(VISIBLE);
+						break;
+				}
+				findViewById(R.id.divider).setVisibility(GONE);
+			} else if (chartData.getDataSetCount() == 2) {
+				OrderedLineDataSet dataSet1 = (OrderedLineDataSet) chartData.getDataSetByIndex(0);
+				OrderedLineDataSet dataSet2 = (OrderedLineDataSet) chartData.getDataSetByIndex(1);
+				int altSetIndex = -1;
+				int spdSetIndex = -1;
+				int slpSetIndex = -1;
+				switch (dataSet1.getDataSetType()) {
+					case ALTITUDE:
+						altSetIndex = 0;
+						break;
+					case SPEED:
+						spdSetIndex = 0;
+						break;
+					case SLOPE:
+						slpSetIndex = 0;
+						break;
+				}
+				switch (dataSet2.getDataSetType()) {
+					case ALTITUDE:
+						altSetIndex = 1;
+						break;
+					case SPEED:
+						spdSetIndex = 1;
+						break;
+					case SLOPE:
+						slpSetIndex = 1;
+						break;
+				}
+				if (altSetIndex != -1) {
+					float y = getInterpolatedY(altSetIndex == 0 ? dataSet1 : dataSet2, e);
+					((TextView) textAltView.findViewById(R.id.text_alt_value)).setText(Integer.toString((int) y) + " ");
+					((TextView) textAltView.findViewById(R.id.text_alt_units)).setText((altSetIndex == 0 ? dataSet1.units : dataSet2.units));
+					textAltView.setVisibility(VISIBLE);
+				} else {
+					textAltView.setVisibility(GONE);
+				}
+				if (spdSetIndex != -1) {
+					float y = getInterpolatedY(spdSetIndex == 0 ? dataSet1 : dataSet2, e);
+					((TextView) textSpdView.findViewById(R.id.text_spd_value)).setTextColor((spdSetIndex == 0 ? dataSet1 : dataSet2).getColor());
+					((TextView) textSpdView.findViewById(R.id.text_spd_value)).setText(Integer.toString((int) y) + " ");
+					((TextView) textSpdView.findViewById(R.id.text_spd_units)).setText(spdSetIndex == 0 ? dataSet1.units : dataSet2.units);
+					textSpdView.setVisibility(VISIBLE);
+				} else {
+					textSpdView.setVisibility(GONE);
+				}
+				if (slpSetIndex != -1) {
+					float y = getInterpolatedY(slpSetIndex == 0 ? dataSet1 : dataSet2, e);
+					((TextView) textSlpView.findViewById(R.id.text_slp_value)).setText(Integer.toString((int) y) + " ");
+					textSlpView.setVisibility(VISIBLE);
+				} else {
+					textSlpView.setVisibility(GONE);
+				}
+				findViewById(R.id.divider).setVisibility(VISIBLE);
+			} else {
+				textAltView.setVisibility(GONE);
+				textSpdView.setVisibility(GONE);
+				textSlpView.setVisibility(GONE);
+				findViewById(R.id.divider).setVisibility(GONE);
+			}
+			super.refreshContent(e, highlight);
+		}
+
+		private float getInterpolatedY(OrderedLineDataSet ds, Entry e) {
+			if (ds.getEntryIndex(e) == -1) {
+				Entry upEntry = ds.getEntryForXValue(e.getX(), Float.NaN, DataSet.Rounding.UP);
+				Entry downEntry = upEntry;
+				int upIndex = ds.getEntryIndex(upEntry);
+				if (upIndex > 0) {
+					downEntry = ds.getEntryForIndex(upIndex - 1);
+				}
+				return MapUtils.getInterpolatedY(downEntry.getX(), downEntry.getY(), upEntry.getX(), upEntry.getY(), e.getX());
+			} else {
+				return e.getY();
+			}
+		}
+
+		@Override
+		public MPPointF getOffset() {
+			if (getChartView().getData().getDataSetCount() == 2) {
+				int x = findViewById(R.id.divider).getLeft();
+				return new MPPointF(-x - AndroidUtils.dpToPx(getContext(), .5f), 0);
+			} else {
+				return new MPPointF(-getWidth() / 2f, 0);
+			}
+		}
+
+		@Override
+		public MPPointF getOffsetForDrawingAtPoint(float posX, float posY) {
+			int margin = AndroidUtils.dpToPx(getContext(), 3f);
+			MPPointF offset = getOffset();
+			offset.y = -posY;
+			if (posX + offset.x - margin < 0) {
+				offset.x -= (offset.x + posX - margin);
+			}
+			if (posX + offset.x + getWidth() + margin > getChartView().getWidth()) {
+				offset.x -= (getWidth() - (getChartView().getWidth() - posX) + offset.x) + margin;
+			}
+			return offset;
+		}
+	}
+
 	public static class GPXInfo {
 		private String fileName;
 		private long lastModified;
 		private long fileSize;
 		private boolean selected;
 
-		public GPXInfo(String fileName, long lastModified, long fileSize) {
+		GPXInfo(String fileName, long lastModified, long fileSize) {
 			this.fileName = fileName;
 			this.lastModified = lastModified;
 			this.fileSize = fileSize;

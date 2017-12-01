@@ -10,10 +10,11 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.support.v7.app.AlertDialog;
+
 import net.osmand.IProgress;
 import net.osmand.IndexConstants;
 import net.osmand.PlatformUtil;
-import net.osmand.binary.BinaryMapIndexReader;
+import net.osmand.aidl.OsmandAidlApi;
 import net.osmand.map.OsmandRegions;
 import net.osmand.map.OsmandRegions.RegionTranslation;
 import net.osmand.map.WorldRegion;
@@ -28,6 +29,7 @@ import net.osmand.plus.download.ui.AbstractLoadLocalIndexTask;
 import net.osmand.plus.helpers.AvoidSpecificRoads;
 import net.osmand.plus.helpers.WaypointHelper;
 import net.osmand.plus.liveupdates.LiveUpdatesHelper;
+import net.osmand.plus.mapmarkers.MapMarkersDbHelper;
 import net.osmand.plus.monitoring.LiveMonitoringHelper;
 import net.osmand.plus.monitoring.OsmandMonitoringPlugin;
 import net.osmand.plus.poi.PoiFiltersHelper;
@@ -44,7 +46,6 @@ import net.osmand.plus.voice.MediaCommandPlayerImpl;
 import net.osmand.plus.voice.TTSCommandPlayerImpl;
 import net.osmand.render.RenderingRulesStorage;
 import net.osmand.router.RoutingConfiguration;
-import net.osmand.search.SearchUICore;
 import net.osmand.util.Algorithms;
 
 import org.xmlpull.v1.XmlPullParserException;
@@ -59,6 +60,7 @@ import java.util.List;
 import java.util.Random;
 
 import btools.routingapp.BRouterServiceConnection;
+
 import static net.osmand.plus.liveupdates.LiveUpdatesHelper.getPendingIntent;
 import static net.osmand.plus.liveupdates.LiveUpdatesHelper.preferenceLastCheck;
 import static net.osmand.plus.liveupdates.LiveUpdatesHelper.preferenceLiveUpdatesOn;
@@ -85,7 +87,7 @@ public class AppInitializer implements IProgress {
 	private static final String VERSION_INSTALLED = "VERSION_INSTALLED"; //$NON-NLS-1$
 	private static final String EXCEPTION_FILE_SIZE = "EXCEPTION_FS"; //$NON-NLS-1$
 
-	public static final String LATEST_CHANGES_URL = "http://osmand.net/blog?id=osmand-2-5-released";
+	public static final String LATEST_CHANGES_URL = "https://osmand.net/blog?id=osmand-2-8-released";
 //	public static final String LATEST_CHANGES_URL = null; // not enough to read
 	public static final int APP_EXIT_CODE = 4;
 	public static final String APP_EXIT_KEY = "APP_EXIT_KEY";
@@ -286,8 +288,8 @@ public class AppInitializer implements IProgress {
 	}
 
 	private void indexRegionsBoundaries(List<String> warnings) {
+		File file = app.getAppPath("regions.ocbf");
 		try {
-			File file = app.getAppPath("regions.ocbf");
 			if (file != null) {
 				if (!file.exists()) {
 					Algorithms.streamCopy(OsmandRegions.class.getResourceAsStream("regions.ocbf"),
@@ -298,6 +300,7 @@ public class AppInitializer implements IProgress {
 			}
 		} catch (Exception e) {
 			warnings.add(e.getMessage());
+			file.delete(); // recreate file
 			LOG.error(e.getMessage(), e);
 		}
 	}
@@ -329,7 +332,7 @@ public class AppInitializer implements IProgress {
 						return app.getString(in);
 					}
 				} catch (Exception e) {
-					System.err.println("No translation for "+ keyName + " " + e.getMessage());
+					LOG.debug("No translation for "+ keyName + " " + e.getMessage());
 				}
 				return null;
 			}
@@ -360,8 +363,10 @@ public class AppInitializer implements IProgress {
 		app.notificationHelper = startupInit(new NotificationHelper(app), NotificationHelper.class);
 		app.liveMonitoringHelper = startupInit(new LiveMonitoringHelper(app), LiveMonitoringHelper.class);
 		app.selectedGpxHelper = startupInit(new GpxSelectionHelper(app, app.savingTrackHelper), GpxSelectionHelper.class);
+		app.gpxDatabase = startupInit(new GPXDatabase(app), GPXDatabase.class);
 		app.favorites = startupInit(new FavouritesDbHelper(app), FavouritesDbHelper.class);
 		app.waypointHelper = startupInit(new WaypointHelper(app), WaypointHelper.class);
+		app.aidlApi = startupInit(new OsmandAidlApi(app), OsmandAidlApi.class);
 
 		app.regions = startupInit(new OsmandRegions(), OsmandRegions.class);
 		updateRegionVars();
@@ -370,6 +375,7 @@ public class AppInitializer implements IProgress {
 		app.rendererRegistry = startupInit(new RendererRegistry(app), RendererRegistry.class);
 		app.geocodingLookupService = startupInit(new GeocodingLookupService(app), GeocodingLookupService.class);
 		app.targetPointsHelper = startupInit(new TargetPointsHelper(app), TargetPointsHelper.class);
+		app.mapMarkersDbHelper = startupInit(new MapMarkersDbHelper(app), MapMarkersDbHelper.class);
 		app.mapMarkersHelper = startupInit(new MapMarkersHelper(app), MapMarkersHelper.class);
 		app.searchUICore = startupInit(new QuickSearchHelper(app), QuickSearchHelper.class);
 	}
@@ -438,12 +444,18 @@ public class AppInitializer implements IProgress {
 
 
 
-	public synchronized void initVoiceDataInDifferentThread(final Activity uiContext, final String voiceProvider, final Runnable run, boolean showDialog) {
+	public synchronized void initVoiceDataInDifferentThread(final Activity uiContext,
+															final ApplicationMode applicationMode,
+															final String voiceProvider,
+															final Runnable run,
+															boolean showDialog) {
+
 		final ProgressDialog dlg = showDialog ? ProgressDialog.show(uiContext, app.getString(R.string.loading_data),
 				app.getString(R.string.voice_data_initializing)) : null;
 		new Thread(new Runnable() {
 
-			public CommandPlayer createCommandPlayer(String voiceProvider, OsmandApplication osmandApplication, Activity ctx)
+			public CommandPlayer createCommandPlayer(String voiceProvider, ApplicationMode applicationMode,
+													 OsmandApplication osmandApplication, Activity ctx)
 					throws CommandPlayerException {
 				if (voiceProvider != null) {
 					File parent = osmandApplication.getAppPath(IndexConstants.VOICE_INDEX_DIR);
@@ -453,9 +465,9 @@ public class AppInitializer implements IProgress {
 					}
 
 					if (MediaCommandPlayerImpl.isMyData(voiceDir)) {
-						return new MediaCommandPlayerImpl(osmandApplication, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
+						return new MediaCommandPlayerImpl(osmandApplication, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
 					} else if (TTSCommandPlayerImpl.isMyData(voiceDir)) {
-						return new TTSCommandPlayerImpl(ctx, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
+						return new TTSCommandPlayerImpl(ctx, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
 					}
 					throw new CommandPlayerException(ctx.getString(R.string.voice_data_not_supported));
 				}
@@ -467,7 +479,7 @@ public class AppInitializer implements IProgress {
 					if (app.player != null) {
 						app.player.clear();
 					}
-					app.player = createCommandPlayer(voiceProvider, app, uiContext);
+					app.player = createCommandPlayer(voiceProvider, applicationMode, app, uiContext);
 					app.getRoutingHelper().getVoiceRouter().setPlayer(app.player);
 					if(dlg != null) {
 						dlg.dismiss();
@@ -510,6 +522,7 @@ public class AppInitializer implements IProgress {
 			notifyEvent(InitEvents.LOAD_GPX_TRACKS);
 			saveGPXTracks();
 			notifyEvent(InitEvents.SAVE_GPX_TRACKS);
+			app.mapMarkersHelper.syncAllGroupsAsync();
 			// restore backuped favorites to normal file
 			restoreBackupForFavoritesFiles();
 			notifyEvent(InitEvents.RESTORE_BACKUPS);

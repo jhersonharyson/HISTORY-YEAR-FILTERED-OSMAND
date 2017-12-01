@@ -1,8 +1,6 @@
 package net.osmand.plus.mapmarkers;
 
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.DialogInterface.OnDismissListener;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.view.LayoutInflater;
@@ -41,7 +39,6 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 	private boolean target;
 
 	private OnMarkerSelectListener onClickListener;
-	private OnDismissListener onDismissListener;
 
 	@Nullable
 	@Override
@@ -62,7 +59,6 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 		if (mapActivity != null) {
 			MapRouteInfoMenu routeInfoMenu = mapActivity.getMapLayers().getMapControlsLayer().getMapRouteInfoMenu();
 			onClickListener = routeInfoMenu.getOnMarkerSelectListener();
-			onDismissListener = routeInfoMenu.getOnDismissDialogListener();
 
 			screenOrientation = DashLocationFragment.getScreenOrientation(mapActivity);
 
@@ -76,7 +72,11 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 				LatLon myLoc = l == null ? null : new LatLon(l.getLatitude(), l.getLongitude());
 				useCenter = !mapLinked;
 				loc = (useCenter ? mw : myLoc);
-				heading = useCenter ? -mapRotation : head;
+				if (useCenter) {
+					heading = -mapRotation;
+				} else {
+					heading = head;
+				}
 			}
 		}
 		nightMode = !app.getSettings().isLightContent();
@@ -93,7 +93,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 
 		ListView listView = (ListView) view.findViewById(android.R.id.list);
 		final ArrayAdapter<MapMarker> adapter = new MapMarkersListAdapter();
-		List<MapMarker> markers = getMyApplication().getMapMarkersHelper().getActiveMapMarkers();
+		List<MapMarker> markers = getMyApplication().getMapMarkersHelper().getMapMarkers();
 		if (markers.size() > 0) {
 			for (MapMarker marker : markers) {
 				adapter.add(marker);
@@ -110,14 +110,6 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 			}
 		});
 		return view;
-	}
-
-	@Override
-	public void onDismiss(DialogInterface dialog) {
-		super.onDismiss(dialog);
-		if (onDismissListener != null) {
-			onDismissListener.onDismiss(dialog);
-		}
 	}
 
 	@Override
@@ -139,7 +131,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 				convertView = getMapActivity().getLayoutInflater().inflate(R.layout.map_marker_item, null);
 			}
 			MapMarkerDialogHelper.updateMapMarkerInfo(getContext(), convertView, loc, heading,
-					useCenter, nightMode, screenOrientation, false, null, marker);
+					useCenter, nightMode, screenOrientation, false, null, marker, true);
 			final View remove = convertView.findViewById(R.id.info_close);
 			remove.setVisibility(View.GONE);
 			AndroidUtils.setListItemBackground(getMapActivity(), convertView, nightMode);

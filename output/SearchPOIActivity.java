@@ -475,7 +475,7 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 	private synchronized void runNewSearchQuery(net.osmand.Location location, int requestType) {
 		if (currentSearchTask == null || currentSearchTask.getStatus() == Status.FINISHED) {
 			currentSearchTask = new SearchAmenityTask(location, requestType);
-			currentSearchTask.execute();
+			currentSearchTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
 		}
 	}
 
@@ -519,9 +519,11 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 			final int index = lv.getFirstVisiblePosition();
 			View v = lv.getChildAt(0);
 			final int top = (v == null) ? 0 : v.getTop();
+			accessibilityAssistant.lockEvents();
 			amenityAdapter.notifyDataSetChanged();
 			lv.setSelectionFromTop(index, top);
 			updateButtonState(false);
+			accessibilityAssistant.unlockEvents();
 			navigationInfo.updateLocation(location);
 		}
 	}
@@ -554,8 +556,8 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 		if (selected != null) {
 			try {
 				int position = getListView().getPositionForView(selected);
-				if (position != AdapterView.INVALID_POSITION) {
-					navigationInfo.updateTargetDirection(amenityAdapter.getItem(position).getLocation(), heading.floatValue());
+				if ((position != AdapterView.INVALID_POSITION) && (position >= getListView().getHeaderViewsCount())) {
+					navigationInfo.updateTargetDirection(amenityAdapter.getItem(position - getListView().getHeaderViewsCount()).getLocation(), heading.floatValue());
 				}
 			} catch (Exception e) {
 				return;
@@ -683,7 +685,7 @@ public class SearchPOIActivity extends OsmandListActivity implements OsmAndCompa
 			if (searchLocation != null) {
 				if (requestType == NEW_SEARCH_INIT) {
 					return filter.initializeNewSearch(searchLocation.getLatitude(), searchLocation.getLongitude(),
-							-1, this);
+							-1, this, -1);
 				} else if (requestType == SEARCH_FURTHER) {
 					return filter.searchFurther(searchLocation.getLatitude(), searchLocation.getLongitude(), this);
 				} else if (requestType == SEARCH_AGAIN) {

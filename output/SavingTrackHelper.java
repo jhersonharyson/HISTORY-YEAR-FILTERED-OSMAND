@@ -4,8 +4,10 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.text.format.DateFormat;
+
 import net.osmand.PlatformUtil;
 import net.osmand.data.LatLon;
+import net.osmand.plus.GPXDatabase.GpxDataItem;
 import net.osmand.plus.GPXUtilities;
 import net.osmand.plus.GPXUtilities.GPXFile;
 import net.osmand.plus.GPXUtilities.GPXTrackAnalysis;
@@ -18,7 +20,6 @@ import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.monitoring.OsmandMonitoringPlugin;
-import net.osmand.plus.notifications.OsmandNotification;
 import net.osmand.plus.notifications.OsmandNotification.NotificationType;
 import net.osmand.util.MapUtils;
 
@@ -32,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 public class SavingTrackHelper extends SQLiteOpenHelper {
 	
@@ -198,6 +200,20 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 					File fout = new File(dir, f + ".gpx"); //$NON-NLS-1$
 					if (!data.get(f).isEmpty()) {
 						WptPt pt = data.get(f).findPointToShow();
+
+						if (ctx.getSettings().STORE_TRACKS_IN_MONTHLY_DIRECTORIES.get()) {
+							SimpleDateFormat dateDirFormat = new SimpleDateFormat("yyyy-MM");
+							dateDirFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+							String dateDirName = dateDirFormat.format(new Date(pt.time));
+
+							File dateDir = new File(dir, dateDirName);
+							dateDir.mkdirs();
+
+							if (dateDir.exists()) {
+								dir = dateDir;
+							}
+						}
+
 						String fileName = f + "_" + new SimpleDateFormat("HH-mm_EEE", Locale.US).format(new Date(pt.time)); //$NON-NLS-1$
 						fout = new File(dir, fileName + ".gpx"); //$NON-NLS-1$
 						int ind = 1;
@@ -211,6 +227,11 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 						warnings.add(warn);
 						return warnings;
 					}
+
+					GPXFile gpx = data.get(f);
+					GPXTrackAnalysis analysis = gpx.getAnalysis(fout.lastModified());
+					GpxDataItem item = new GpxDataItem(fout, analysis);
+					ctx.getGpxDatabase().add(item);
 				}
 			}
 		}
@@ -231,7 +252,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		distance = 0;
 		points = 0;
 		duration = 0;
-		currentTrack.getModifiableGpxFile().points.clear();
+		ctx.getSelectedGpxHelper().clearPoints(currentTrack.getModifiableGpxFile());
 		currentTrack.getModifiableGpxFile().tracks.clear();
 		currentTrack.getModifiablePointsToDisplay().clear();
 		currentTrack.getModifiableGpxFile().modifiedTime = System.currentTimeMillis();
@@ -284,7 +305,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 					gpx  = new GPXFile();
 					dataTracks.put(date, gpx);
 				}
-				gpx.points.add(pt);
+				ctx.getSelectedGpxHelper().addPoint(pt, gpx);
 
 			} while (query.moveToNext());
 		}
@@ -311,10 +332,10 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 				long currentInterval = Math.abs(time - previousTime);
 				boolean newInterval = pt.lat == 0 && pt.lon == 0;
 				
-				if (track != null && !newInterval && (currentInterval < 6 * 60 * 1000 || currentInterval < 10 * previousInterval)) {
+				if (track != null && !newInterval && (!ctx.getSettings().AUTO_SPLIT_RECORDING.get() || currentInterval < 6 * 60 * 1000 || currentInterval < 10 * previousInterval)) {
 					// 6 minute - same segment
 					segment.points.add(pt);
-				} else if (track != null && currentInterval < 2 * 60 * 60 * 1000) {
+				} else if (track != null && (ctx.getSettings().AUTO_SPLIT_RECORDING.get() && currentInterval < 2 * 60 * 60 * 1000)) {
 					// 2 hour - same track
 					segment = new TrkSegment();
 					if(!newInterval) {
@@ -417,13 +438,15 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	
 	private void addTrackPoint(WptPt pt, boolean newSegment, long time) {
 		List<TrkSegment> points = currentTrack.getModifiablePointsToDisplay();
-		Track track = currentTrack.getGpxFile().tracks.get(0);
+		Track track = currentTrack.getModifiableGpxFile().tracks.get(0);
 		assert track.segments.size() == points.size(); 
 		if (points.size() == 0 || newSegment) {
 			points.add(new TrkSegment());
 		}
-		if(track.segments.size() == 0 || newSegment) {
+		boolean segmentAdded = false;
+		if (track.segments.size() == 0 || newSegment) {
 			track.segments.add(new TrkSegment());
+			segmentAdded = true;
 		}
 		if (pt != null) {
 			int ind = points.size() - 1;
@@ -431,6 +454,9 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 			last.points.add(pt);
 			TrkSegment lt = track.segments.get(track.segments.size() - 1);
 			lt.points.add(pt);
+		}
+		if (segmentAdded) {
+			currentTrack.processPoints();
 		}
 		currentTrack.getModifiableGpxFile().modifiedTime = time;
 	}
@@ -443,7 +469,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		if (color != 0) {
 			pt.setColor(color);
 		}
-		currentTrack.getModifiableGpxFile().points.add(pt);
+		ctx.getSelectedGpxHelper().addPoint(pt, currentTrack.getModifiableGpxFile());
 		currentTrack.getModifiableGpxFile().modifiedTime = time;
 		points++;
 		execWithClose(insertPointsScript, new Object[] { lat, lon, time, description, name, category, color });
@@ -515,7 +541,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 	}
 
 	public void deletePointData(WptPt pt) {
-		currentTrack.getModifiableGpxFile().points.remove(pt);
+		ctx.getSelectedGpxHelper().removePoint(pt, currentTrack.getModifiableGpxFile());
 		currentTrack.getModifiableGpxFile().modifiedTime = System.currentTimeMillis();
 		points--;
 
@@ -572,7 +598,7 @@ public class SavingTrackHelper extends SQLiteOpenHelper {
 		Map<String, GPXFile> files = collectRecordedData();
 		currentTrack.getModifiableGpxFile().tracks.clear();
 		for (Map.Entry<String, GPXFile> entry : files.entrySet()){
-			currentTrack.getModifiableGpxFile().points.addAll(entry.getValue().points);
+			ctx.getSelectedGpxHelper().addPoints(entry.getValue().getPoints(), currentTrack.getModifiableGpxFile());
 			currentTrack.getModifiableGpxFile().tracks.addAll(entry.getValue().tracks);
 		}
 		currentTrack.processPoints();

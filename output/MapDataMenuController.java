@@ -134,7 +134,7 @@ public class MapDataMenuController extends MenuController {
 		rightDownloadButtonController.caption = getMapActivity().getString(R.string.shared_string_delete);
 		rightDownloadButtonController.leftIconId = R.drawable.ic_action_delete_dark;
 
-		topRightTitleButtonController = new TitleButtonController() {
+		bottomTitleButtonController = new TitleButtonController() {
 			@Override
 			public void buttonPressed() {
 				getMapActivity().getContextMenu().close();
@@ -158,7 +158,7 @@ public class MapDataMenuController extends MenuController {
 						mapActivity.getContextMenu().getLatLon(), selectedObjects);
 			}
 		};
-		topRightTitleButtonController.caption = getMapActivity().getString(R.string.download_select_map_types);
+		bottomTitleButtonController.caption = getMapActivity().getString(R.string.download_select_map_types);
 
 		titleProgressController = new TitleProgressController() {
 			@Override
@@ -300,7 +300,7 @@ public class MapDataMenuController extends MenuController {
 	}
 
 	@Override
-	public boolean fabVisible() {
+	public boolean navigateButtonVisible() {
 		return false;
 	}
 
@@ -350,10 +350,12 @@ public class MapDataMenuController extends MenuController {
 		}
 
 		rightDownloadButtonController.visible = downloaded;
-		topRightTitleButtonController.visible = (otherIndexItems != null && otherIndexItems.size() > 0)
+		bottomTitleButtonController.visible = (otherIndexItems != null && otherIndexItems.size() > 0)
 				|| (otherLocalIndexInfos != null && otherLocalIndexInfos.size() > 0);
 
-		boolean downloadIndexes = getMapActivity().getMyApplication().getSettings().isInternetConnectionAvailable()
+		boolean internetConnectionAvailable =
+				getMapActivity().getMyApplication().getSettings().isInternetConnectionAvailable();
+		boolean downloadIndexes = internetConnectionAvailable
 				&& !downloadThread.getIndexes().isDownloadedFromInternet
 				&& !downloadThread.getIndexes().downloadFromInternetFailed;
 
@@ -382,6 +384,9 @@ public class MapDataMenuController extends MenuController {
 			titleProgressController.visible = true;
 		} else if (downloadIndexes) {
 			titleProgressController.setIndexesDownloadMode();
+			titleProgressController.visible = true;
+		} else if (!internetConnectionAvailable) {
+			titleProgressController.setNoInternetConnectionMode();
 			titleProgressController.visible = true;
 		} else {
 			titleProgressController.visible = false;
@@ -416,7 +421,7 @@ public class MapDataMenuController extends MenuController {
 							getMapActivity().refreshMap();
 						}
 
-					}.execute((Void) null);
+					}.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, (Void) null);
 				}
 			});
 			confirm.setNegativeButton(R.string.shared_string_no, null);
@@ -460,7 +465,7 @@ public class MapDataMenuController extends MenuController {
 				getMapActivity().refreshMap();
 			}
 
-		}.execute((Void) null);
+		}.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, (Void) null);
 	}
 
 	private boolean move(File from, File to) {
@@ -513,6 +518,8 @@ public class MapDataMenuController extends MenuController {
 			} else if (localIndexInfo.getOriginalType() == LocalIndexType.TTS_VOICE_DATA
 					|| localIndexInfo.getOriginalType() == LocalIndexType.VOICE_DATA) {
 				return DownloadActivityType.VOICE_FILE;
+			} else if (localIndexInfo.getOriginalType() == LocalIndexType.FONT_DATA) {
+				return DownloadActivityType.FONT_FILE;
 			} else {
 				return null;
 			}

@@ -1,13 +1,16 @@
 package net.osmand.plus.mapcontextmenu;
 
 import android.graphics.drawable.Drawable;
+import android.os.AsyncTask;
 import android.support.annotation.NonNull;
+import android.support.v4.content.ContextCompat;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.LinearLayout;
 
 import net.osmand.IndexConstants;
 import net.osmand.NativeLibrary.RenderedObject;
+import net.osmand.aidl.maplayer.point.AMapPoint;
 import net.osmand.binary.BinaryMapDataObject;
 import net.osmand.binary.BinaryMapIndexReader.TagValuePair;
 import net.osmand.binary.RouteDataObject;
@@ -22,6 +25,8 @@ import net.osmand.plus.GPXUtilities.WptPt;
 import net.osmand.plus.GpxSelectionHelper.GpxDisplayItem;
 import net.osmand.plus.MapMarkersHelper.MapMarker;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.OsmandPlugin;
+import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper.TargetPoint;
 import net.osmand.plus.activities.MapActivity;
@@ -32,6 +37,7 @@ import net.osmand.plus.download.DownloadIndexesThread;
 import net.osmand.plus.download.DownloadValidationManager;
 import net.osmand.plus.download.IndexItem;
 import net.osmand.plus.helpers.SearchHistoryHelper;
+import net.osmand.plus.mapcontextmenu.controllers.AMapPointMenuController;
 import net.osmand.plus.mapcontextmenu.controllers.AmenityMenuController;
 import net.osmand.plus.mapcontextmenu.controllers.FavouritePointMenuController;
 import net.osmand.plus.mapcontextmenu.controllers.GpxItemMenuController;
@@ -48,6 +54,8 @@ import net.osmand.plus.mapcontextmenu.controllers.TransportStopController;
 import net.osmand.plus.mapcontextmenu.controllers.TransportStopController.TransportStopRoute;
 import net.osmand.plus.mapcontextmenu.controllers.WptPtMenuController;
 import net.osmand.plus.mapcontextmenu.other.ShareMenu;
+import net.osmand.plus.mapillary.MapillaryImage;
+import net.osmand.plus.mapillary.MapillaryMenuController;
 import net.osmand.plus.osmedit.EditPOIMenuController;
 import net.osmand.plus.osmedit.OsmBugMenuController;
 import net.osmand.plus.osmedit.OsmBugsLayer.OpenStreetNote;
@@ -80,6 +88,7 @@ public abstract class MenuController extends BaseMenuController {
 		MULTI_LINE
 	}
 
+	protected MapContextMenu mapContextMenu;
 	protected MenuBuilder builder;
 	private int currentMenuState;
 	private MenuType menuType = MenuType.STANDARD;
@@ -89,7 +98,7 @@ public abstract class MenuController extends BaseMenuController {
 
 	protected TitleButtonController leftTitleButtonController;
 	protected TitleButtonController rightTitleButtonController;
-	protected TitleButtonController topRightTitleButtonController;
+	protected TitleButtonController bottomTitleButtonController;
 
 	protected TitleButtonController leftDownloadButtonController;
 	protected TitleButtonController rightDownloadButtonController;
@@ -111,14 +120,35 @@ public abstract class MenuController extends BaseMenuController {
 		this.builder.setLight(isLight());
 	}
 
+	public String getPreferredMapLang() {
+		return builder.getPreferredMapLang();
+	}
+
+	public String getPreferredMapAppLang() {
+		return builder.getPreferredMapAppLang();
+	}
+
+	public boolean isTransliterateNames() {
+		return builder.isTransliterateNames();
+	}
+
+	public void setMapContextMenu(MapContextMenu mapContextMenu) {
+		this.mapContextMenu = mapContextMenu;
+		builder.setMapContextMenu(mapContextMenu);
+	}
+
 	public void build(View rootView) {
+		for (OsmandPlugin plugin : OsmandPlugin.getEnabledPlugins()) {
+			if (plugin.isMenuControllerSupported(this.getClass())) {
+				builder.addMenuPlugin(plugin);
+			}
+		}
 		builder.build(rootView);
 	}
 
 	public static MenuController getMenuController(MapActivity mapActivity,
 												   LatLon latLon, PointDescription pointDescription, Object object,
 												   MenuType menuType) {
-		OsmandApplication app = mapActivity.getMyApplication();
 		MenuController menuController = null;
 		if (object != null) {
 			if (object instanceof Amenity) {
@@ -149,6 +179,8 @@ public abstract class MenuController extends BaseMenuController {
 				menuController = new TransportRouteController(mapActivity, pointDescription, (TransportStopRoute) object);
 			} else if (object instanceof TransportStop) {
 				menuController = new TransportStopController(mapActivity, pointDescription, (TransportStop) object);
+			} else if (object instanceof AMapPoint) {
+				menuController = new AMapPointMenuController(mapActivity, pointDescription, (AMapPoint) object);
 			} else if (object instanceof LatLon) {
 				if (pointDescription.isParking()) {
 					menuController = new ParkingPositionMenuController(mapActivity, pointDescription);
@@ -159,6 +191,8 @@ public abstract class MenuController extends BaseMenuController {
 				menuController = new ImpassibleRoadsMenuController(mapActivity, pointDescription, (RouteDataObject) object);
 			} else if (object instanceof RenderedObject) {
 				menuController = new RenderedObjectMenuController(mapActivity, pointDescription, (RenderedObject) object);
+			} else if (object instanceof MapillaryImage) {
+				menuController = new MapillaryMenuController(mapActivity, pointDescription, (MapillaryImage) object);
 			}
 		}
 		if (menuController == null) {
@@ -186,8 +220,9 @@ public abstract class MenuController extends BaseMenuController {
 		return active;
 	}
 
-	public void setActive(boolean active) {
+	public boolean setActive(boolean active) {
 		this.active = active;
+		return true;
 	}
 
 	public void addPlainMenuItem(int iconId, String text, boolean needLinks, boolean isUrl, OnClickListener onClickListener) {
@@ -203,8 +238,12 @@ public abstract class MenuController extends BaseMenuController {
 	}
 
 	protected void addMyLocationToPlainItems(LatLon latLon) {
+		OsmandSettings st = ((OsmandApplication) getMapActivity().getApplicationContext()).getSettings();
 		addPlainMenuItem(R.drawable.ic_action_get_my_location, PointDescription.getLocationName(getMapActivity(),
 				latLon.getLatitude(), latLon.getLongitude(), true).replaceAll("\n", " "), false, false, null);
+		//if (st.COORDINATES_FORMAT.get() != PointDescription.OLC_FORMAT)
+		//	addPlainMenuItem(R.drawable.ic_action_get_my_location, PointDescription.getLocationOlcName(
+		//			latLon.getLatitude(), latLon.getLongitude()).replaceAll("\n", " "), false, false, null);
 	}
 
 	public PointDescription getPointDescription() {
@@ -279,8 +318,8 @@ public abstract class MenuController extends BaseMenuController {
 		return rightTitleButtonController;
 	}
 
-	public TitleButtonController getTopRightTitleButtonController() {
-		return topRightTitleButtonController;
+	public TitleButtonController getBottomTitleButtonController() {
+		return bottomTitleButtonController;
 	}
 
 	public TitleButtonController getLeftDownloadButtonController() {
@@ -311,8 +350,12 @@ public abstract class MenuController extends BaseMenuController {
 		return true;
 	}
 
-	public boolean fabVisible() {
+	public boolean navigateButtonVisible() {
 		return true;
+	}
+
+	public boolean zoomButtonsVisible() {
+		return !isLandscapeLayout();
 	}
 
 	public boolean buttonsVisible() {
@@ -321,6 +364,10 @@ public abstract class MenuController extends BaseMenuController {
 
 	public boolean handleSingleTapOnMap() {
 		return false;
+	}
+
+	public boolean isClosable() {
+		return true;
 	}
 
 	public boolean needStreetName() {
@@ -339,6 +386,10 @@ public abstract class MenuController extends BaseMenuController {
 		return false;
 	}
 
+	public boolean displayAdditionalTypeStrInHours() {
+		return false;
+	}
+
 	public int getLeftIconId() {
 		return 0;
 	}
@@ -351,16 +402,46 @@ public abstract class MenuController extends BaseMenuController {
 		return null;
 	}
 
+	public Drawable getAdditionalLineTypeIcon() {
+		return null;
+	}
+
 	public int getFavActionIconId() {
 		return R.drawable.map_action_fav_dark;
 	}
 
 	public int getFavActionStringId() {
-		return R.string.shared_string_add_to_favorites;
+		return R.string.shared_string_add;
+	}
+
+	public int getWaypointActionIconId() {
+		return getMapActivity().getMyApplication().getSettings().USE_MAP_MARKERS.get()
+				? R.drawable.map_action_flag_dark : R.drawable.map_action_waypoint;
+	}
+
+	public int getWaypointActionStringId() {
+		return getMapActivity().getMyApplication().getSettings().USE_MAP_MARKERS.get()
+				? R.string.shared_string_add_to_map_markers : R.string.context_menu_item_destination_point;
+	}
+
+	public boolean isWaypointButtonEnabled() {
+		return true;
 	}
 
 	public String getTypeStr() {
 		return "";
+	}
+
+	public String getAdditionalTypeStr() {
+		return "";
+	}
+
+	public int getTimeStrColor() {
+		return 0;
+	}
+
+	public OpeningHoursInfo getOpeningHoursInfo() {
+		return null;
 	}
 
 	public String getCommonTypeStr() {
@@ -371,8 +452,12 @@ public abstract class MenuController extends BaseMenuController {
 		return pointDescription.getName();
 	}
 
-	public void share(LatLon latLon, String title) {
-		ShareMenu.show(latLon, title, getMapActivity());
+	public List<TransportStopRoute> getTransportStopRoutes() {
+		return null;
+	}
+
+	public void share(LatLon latLon, String title, String address) {
+		ShareMenu.show(latLon, title, address, getMapActivity());
 	}
 
 	public void updateData() {
@@ -394,7 +479,9 @@ public abstract class MenuController extends BaseMenuController {
 			leftDownloadButtonController.visible = !downloaded;
 			leftDownloadButtonController.leftIconId = R.drawable.ic_action_import;
 
-			boolean downloadIndexes = getMapActivity().getMyApplication().getSettings().isInternetConnectionAvailable()
+			boolean internetConnectionAvailable =
+					getMapActivity().getMyApplication().getSettings().isInternetConnectionAvailable();
+			boolean downloadIndexes = internetConnectionAvailable
 					&& !downloadThread.getIndexes().isDownloadedFromInternet
 					&& !downloadThread.getIndexes().downloadFromInternetFailed;
 
@@ -424,6 +511,9 @@ public abstract class MenuController extends BaseMenuController {
 			} else if (downloadIndexes) {
 				titleProgressController.setIndexesDownloadMode();
 				titleProgressController.visible = true;
+			} else if (!internetConnectionAvailable) {
+				titleProgressController.setNoInternetConnectionMode();
+				titleProgressController.visible = true;
 			} else {
 				titleProgressController.visible = false;
 			}
@@ -444,10 +534,18 @@ public abstract class MenuController extends BaseMenuController {
 		public boolean needRightText = false;
 		public String rightTextCaption = "";
 		public boolean visible = true;
+		public boolean needColorizeIcon = true;
+		public Drawable leftIcon;
 
 		public Drawable getLeftIcon() {
+			if (leftIcon != null) {
+				return leftIcon;
+			}
 			if (leftIconId != 0) {
-				return getIcon(leftIconId, isLight() ? R.color.map_widget_blue : R.color.osmand_orange);
+				if (needColorizeIcon) {
+					return getIcon(leftIconId, isLight() ? R.color.map_widget_blue : R.color.osmand_orange);
+				}
+				return ContextCompat.getDrawable(getMapActivity(), leftIconId);
 			} else {
 				return null;
 			}
@@ -461,16 +559,25 @@ public abstract class MenuController extends BaseMenuController {
 		public int progress = 0;
 		public boolean indeterminate;
 		public boolean visible;
+		public boolean progressVisible;
 		public boolean buttonVisible;
 
 		public void setIndexesDownloadMode() {
 			caption = getMapActivity().getString(R.string.downloading_list_indexes);
 			indeterminate = true;
+			progressVisible = true;
+			buttonVisible = false;
+		}
+
+		public void setNoInternetConnectionMode() {
+			caption = getMapActivity().getString(R.string.no_index_file_to_download);
+			progressVisible = false;
 			buttonVisible = false;
 		}
 
 		public void setMapDownloadMode() {
 			indeterminate = false;
+			progressVisible = true;
 			buttonVisible = true;
 		}
 
@@ -484,9 +591,15 @@ public abstract class MenuController extends BaseMenuController {
 	}
 
 	public void onHide() {
+		if (builder != null) {
+			builder.onHide();
+		}
 	}
 
 	public void onClose() {
+		if (builder != null) {
+			builder.onClose();
+		}
 		if (toolbarController != null) {
 			getMapActivity().hideTopToolbar(toolbarController);
 		}
@@ -506,114 +619,137 @@ public abstract class MenuController extends BaseMenuController {
 		}
 	}
 
-	public void buildMapDownloadButton(LatLon latLon) {
-		int point31x = MapUtils.get31TileNumberX(latLon.getLongitude());
-		int point31y = MapUtils.get31TileNumberY(latLon.getLatitude());
+	public void buildMapDownloadButton(final LatLon latLon) {
+		new AsyncTask<Void, Void, BinaryMapDataObject>() {
 
-		ResourceManager rm = getMapActivity().getMyApplication().getResourceManager();
-		OsmandRegions osmandRegions = rm.getOsmandRegions();
-
-		List<BinaryMapDataObject> mapDataObjects = null;
-		try {
-			mapDataObjects = osmandRegions.queryBbox(point31x, point31x, point31y, point31y);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-
-		if (mapDataObjects != null) {
-			Iterator<BinaryMapDataObject> it = mapDataObjects.iterator();
-			while (it.hasNext()) {
-				BinaryMapDataObject o = it.next();
-				if (o.getTypes() != null) {
-					boolean isRegion = true;
-					for (int i = 0; i < o.getTypes().length; i++) {
-						TagValuePair tp = o.getMapIndex().decodeType(o.getTypes()[i]);
-						if ("boundary".equals(tp.value)) {
-							isRegion = false;
-							break;
-						}
-					}
-					if (!isRegion || !osmandRegions.contain(o, point31x, point31y)) {
-						it.remove();
-					}
-				}
-			}
+			ResourceManager rm;
+			OsmandRegions osmandRegions;
 			String selectedFullName = "";
-			double smallestArea = -1;
-			downloadMapDataObject = null;
-			for (BinaryMapDataObject o : mapDataObjects) {
-				String downloadName = osmandRegions.getDownloadName(o);
-				if (!Algorithms.isEmpty(downloadName)) {
-					boolean downloaded = checkIfObjectDownloaded(rm, downloadName);
-					if (downloaded) {
-						downloadMapDataObject = null;
-						break;
-					} else {
-						String fullName = osmandRegions.getFullName(o);
-						WorldRegion region = osmandRegions.getRegionData(fullName);
-						if (region != null && region.isRegionMapDownload()) {
-							double area = OsmandRegions.getArea(o);
-							if (smallestArea == -1) {
-								smallestArea = area;
-								selectedFullName = fullName;
-								downloadMapDataObject = o;
-							} else if (area < smallestArea) {
-								smallestArea = area;
-								selectedFullName = fullName;
-								downloadMapDataObject = o;
+
+			@Override
+			protected void onPreExecute() {
+				rm = getMapActivity().getMyApplication().getResourceManager();
+				osmandRegions = rm.getOsmandRegions();
+			}
+
+			@Override
+			protected BinaryMapDataObject doInBackground(Void... voids) {
+
+				int point31x = MapUtils.get31TileNumberX(latLon.getLongitude());
+				int point31y = MapUtils.get31TileNumberY(latLon.getLatitude());
+
+				List<BinaryMapDataObject> mapDataObjects = null;
+				try {
+					mapDataObjects = osmandRegions.queryBbox(point31x, point31x, point31y, point31y);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+
+				BinaryMapDataObject binaryMapDataObject = null;
+				if (mapDataObjects != null) {
+					Iterator<BinaryMapDataObject> it = mapDataObjects.iterator();
+					while (it.hasNext()) {
+						BinaryMapDataObject o = it.next();
+						if (o.getTypes() != null) {
+							boolean isRegion = true;
+							for (int i = 0; i < o.getTypes().length; i++) {
+								TagValuePair tp = o.getMapIndex().decodeType(o.getTypes()[i]);
+								if ("boundary".equals(tp.value)) {
+									isRegion = false;
+									break;
+								}
+							}
+							if (!isRegion || !osmandRegions.contain(o, point31x, point31y)) {
+								it.remove();
+							}
+						}
+					}
+					double smallestArea = -1;
+					for (BinaryMapDataObject o : mapDataObjects) {
+						String downloadName = osmandRegions.getDownloadName(o);
+						if (!Algorithms.isEmpty(downloadName)) {
+							boolean downloaded = checkIfObjectDownloaded(rm, downloadName);
+							if (downloaded) {
+								binaryMapDataObject = null;
+								break;
+							} else {
+								String fullName = osmandRegions.getFullName(o);
+								WorldRegion region = osmandRegions.getRegionData(fullName);
+								if (region != null && region.isRegionMapDownload()) {
+									double area = OsmandRegions.getArea(o);
+									if (smallestArea == -1) {
+										smallestArea = area;
+										selectedFullName = fullName;
+										binaryMapDataObject = o;
+									} else if (area < smallestArea) {
+										smallestArea = area;
+										selectedFullName = fullName;
+										binaryMapDataObject = o;
+									}
+								}
 							}
 						}
 					}
 				}
+
+				return binaryMapDataObject;
 			}
 
-			downloaded = downloadMapDataObject == null;
-			if (!downloaded) {
-				downloadThread = getMapActivity().getMyApplication().getDownloadThread();
-				downloadRegion = osmandRegions.getRegionData(selectedFullName);
-				if (downloadRegion != null && downloadRegion.isRegionMapDownload()) {
-					List<IndexItem> indexItems = downloadThread.getIndexes().getIndexItems(downloadRegion);
-					for (IndexItem item : indexItems) {
-						if (item.getType() == DownloadActivityType.NORMAL_FILE
-								&& (item.isDownloaded() || downloadThread.isDownloading(item))) {
-							indexItem = item;
-						}
-					}
-				}
-
-				leftDownloadButtonController = new TitleButtonController() {
-					@Override
-					public void buttonPressed() {
-						if (indexItem != null) {
-							if (indexItem.getType() == DownloadActivityType.NORMAL_FILE) {
-								new DownloadValidationManager(getMapActivity().getMyApplication())
-										.startDownload(getMapActivity(), indexItem);
+			@Override
+			protected void onPostExecute(BinaryMapDataObject binaryMapDataObject) {
+				downloadMapDataObject = binaryMapDataObject;
+				downloaded = downloadMapDataObject == null;
+				if (!downloaded) {
+					downloadThread = getMapActivity().getMyApplication().getDownloadThread();
+					downloadRegion = osmandRegions.getRegionData(selectedFullName);
+					if (downloadRegion != null && downloadRegion.isRegionMapDownload()) {
+						List<IndexItem> indexItems = downloadThread.getIndexes().getIndexItems(downloadRegion);
+						for (IndexItem item : indexItems) {
+							if (item.getType() == DownloadActivityType.NORMAL_FILE
+									&& (item.isDownloaded() || downloadThread.isDownloading(item))) {
+								indexItem = item;
 							}
 						}
 					}
-				};
-				leftDownloadButtonController.caption =
-						downloadRegion != null ? downloadRegion.getLocaleName() : getMapActivity().getString(R.string.shared_string_download);
-				leftDownloadButtonController.leftIconId = R.drawable.ic_action_import;
 
-				titleProgressController = new TitleProgressController() {
-					@Override
-					public void buttonPressed() {
-						if (indexItem != null) {
-							downloadThread.cancelDownload(indexItem);
+					leftDownloadButtonController = new TitleButtonController() {
+						@Override
+						public void buttonPressed() {
+							if (indexItem != null) {
+								if (indexItem.getType() == DownloadActivityType.NORMAL_FILE) {
+									new DownloadValidationManager(getMapActivity().getMyApplication())
+											.startDownload(getMapActivity(), indexItem);
+								}
+							}
+						}
+					};
+					leftDownloadButtonController.caption =
+							downloadRegion != null ? downloadRegion.getLocaleName() : getMapActivity().getString(R.string.shared_string_download);
+					leftDownloadButtonController.leftIconId = R.drawable.ic_action_import;
+
+					titleProgressController = new TitleProgressController() {
+						@Override
+						public void buttonPressed() {
+							if (indexItem != null) {
+								downloadThread.cancelDownload(indexItem);
+							}
+						}
+					};
+
+					if (!downloadThread.getIndexes().isDownloadedFromInternet) {
+						if (getMapActivity().getMyApplication().getSettings().isInternetConnectionAvailable()) {
+							downloadThread.runReloadIndexFiles();
 						}
 					}
-				};
 
-				if (!downloadThread.getIndexes().isDownloadedFromInternet) {
-					if (getMapActivity().getMyApplication().getSettings().isInternetConnectionAvailable()) {
-						downloadThread.runReloadIndexFiles();
+					if (mapContextMenu != null) {
+						mapContextMenu.updateMenuUI();
 					}
 				}
-
-				updateData();
 			}
-		}
+
+		}.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+
 	}
 
 	private boolean checkIfObjectDownloaded(ResourceManager rm, String downloadName) {

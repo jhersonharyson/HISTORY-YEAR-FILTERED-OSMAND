@@ -28,8 +28,10 @@ import net.osmand.plus.R;
 import net.osmand.plus.SQLiteTileSource;
 import net.osmand.plus.activities.MapActivity.ShowQuickSearchMode;
 import net.osmand.plus.helpers.GpxUiHelper;
+import net.osmand.plus.measurementtool.MeasurementToolLayer;
 import net.osmand.plus.poi.PoiFiltersHelper;
 import net.osmand.plus.poi.PoiUIFilter;
+import net.osmand.plus.quickaction.QuickActionRegistry;
 import net.osmand.plus.rastermaps.OsmandRasterMapsPlugin;
 import net.osmand.plus.render.MapVectorLayer;
 import net.osmand.plus.render.RenderingIcons;
@@ -42,6 +44,7 @@ import net.osmand.plus.views.ImpassableRoadsLayer;
 import net.osmand.plus.views.MapControlsLayer;
 import net.osmand.plus.views.MapInfoLayer;
 import net.osmand.plus.views.MapMarkersLayer;
+import net.osmand.plus.views.MapQuickActionLayer;
 import net.osmand.plus.views.MapTextLayer;
 import net.osmand.plus.views.MapTileLayer;
 import net.osmand.plus.views.OsmandMapTileView;
@@ -49,6 +52,7 @@ import net.osmand.plus.views.POIMapLayer;
 import net.osmand.plus.views.PointLocationLayer;
 import net.osmand.plus.views.PointNavigationLayer;
 import net.osmand.plus.views.RouteLayer;
+import net.osmand.plus.views.RulerControlLayer;
 import net.osmand.plus.views.TransportStopsLayer;
 import net.osmand.plus.views.mapwidgets.MapWidgetRegistry;
 
@@ -73,6 +77,7 @@ public class MapActivityLayers {
 	private FavouritesLayer mFavouritesLayer;
 	private TransportStopsLayer transportStopsLayer;
 	private PointLocationLayer locationLayer;
+	private RulerControlLayer rulerControlLayer;
 	private PointNavigationLayer navigationLayer;
 	private MapMarkersLayer mapMarkersLayer;
 	private ImpassableRoadsLayer impassableRoadsLayer;
@@ -80,14 +85,22 @@ public class MapActivityLayers {
 	private MapTextLayer mapTextLayer;
 	private ContextMenuLayer contextMenuLayer;
 	private MapControlsLayer mapControlsLayer;
+	private MapQuickActionLayer mapQuickActionLayer;
 	private DownloadedRegionsLayer downloadedRegionsLayer;
 	private MapWidgetRegistry mapWidgetRegistry;
+	private QuickActionRegistry quickActionRegistry;
+	private MeasurementToolLayer measurementToolLayer;
 
 	private StateChangedListener<Integer> transparencyListener;
 
 	public MapActivityLayers(MapActivity activity) {
 		this.activity = activity;
 		this.mapWidgetRegistry = new MapWidgetRegistry(activity.getMyApplication().getSettings());
+		this.quickActionRegistry = new QuickActionRegistry(activity.getMyApplication().getSettings());
+	}
+
+	public QuickActionRegistry getQuickActionRegistry() {
+		return quickActionRegistry;
 	}
 
 	public MapWidgetRegistry getMapWidgetRegistry() {
@@ -137,6 +150,9 @@ public class MapActivityLayers {
 		// 4. favorites layer
 		mFavouritesLayer = new FavouritesLayer();
 		mapView.addLayer(mFavouritesLayer, 4);
+		// 4.6 measurement tool layer
+		measurementToolLayer = new MeasurementToolLayer();
+		mapView.addLayer(measurementToolLayer, 4.6f);
 		// 5. transport layer
 		transportStopsLayer = new TransportStopsLayer(activity);
 		mapView.addLayer(transportStopsLayer, 5);
@@ -153,6 +169,9 @@ public class MapActivityLayers {
 		// 7.5 Impassible roads
 		impassableRoadsLayer = new ImpassableRoadsLayer(activity);
 		mapView.addLayer(impassableRoadsLayer, 7.5f);
+		// 7.8 ruler control layer
+		rulerControlLayer = new RulerControlLayer(activity);
+		mapView.addLayer(rulerControlLayer, 7.8f);
 		// 8. context menu layer 
 		// 9. map info layer
 		mapInfoLayer = new MapInfoLayer(activity, routeLayer);
@@ -160,6 +179,11 @@ public class MapActivityLayers {
 		// 11. route info layer
 		mapControlsLayer = new MapControlsLayer(activity);
 		mapView.addLayer(mapControlsLayer, 11);
+		// 12. quick actions layer
+		mapQuickActionLayer = new MapQuickActionLayer(activity, contextMenuLayer);
+		mapView.addLayer(mapQuickActionLayer, 12);
+		contextMenuLayer.setMapQuickActionLayer(mapQuickActionLayer);
+		mapControlsLayer.setMapQuickActionLayer(mapQuickActionLayer);
 
 		transparencyListener = new StateChangedListener<Integer>() {
 			@Override
@@ -173,6 +197,7 @@ public class MapActivityLayers {
 
 		OsmandPlugin.createLayers(mapView, activity);
 		app.getAppCustomization().createLayers(mapView, activity);
+		app.getAidlApi().registerMapLayers(activity);
 	}
 
 
@@ -224,8 +249,6 @@ public class MapActivityLayers {
 								settings.SAVE_GLOBAL_TRACK_TO_GPX.get()) {
 							Toast.makeText(activity,
 									R.string.gpx_monitoring_disabled_warn, Toast.LENGTH_LONG).show();
-						} else {
-							g.path = getString(R.string.show_current_gpx_title);
 						}
 						break;
 					} else {
@@ -270,7 +293,7 @@ public class MapActivityLayers {
 			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 				ContextMenuItem item = listAdapter.getItem(position);
 				item.setSelected(!item.getSelected());
-				item.getItemClickListener().onContextMenuClick(listAdapter, position, position, item.getSelected());
+				item.getItemClickListener().onContextMenuClick(listAdapter, position, position, item.getSelected(), null);
 				listAdapter.notifyDataSetChanged();
 			}
 		});
@@ -306,6 +329,7 @@ public class MapActivityLayers {
 				Button neutralButton = alertDialog.getButton(DialogInterface.BUTTON_NEUTRAL);
 				Drawable drawable = app.getIconsCache().getThemedIcon(R.drawable.ic_action_singleselect);
 				neutralButton.setCompoundDrawablesWithIntrinsicBounds(drawable, null, null, null);
+				neutralButton.setContentDescription(app.getString(R.string.shared_string_filters));
 			}
 		});
 		alertDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
@@ -369,6 +393,7 @@ public class MapActivityLayers {
 				Button neutralButton = alertDialog.getButton(DialogInterface.BUTTON_NEUTRAL);
 				Drawable drawable = app.getIconsCache().getThemedIcon(R.drawable.ic_action_multiselect);
 				neutralButton.setCompoundDrawablesWithIntrinsicBounds(drawable, null, null, null);
+				neutralButton.setContentDescription(app.getString(R.string.apply_filters));
 			}
 		});
 		alertDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
@@ -391,7 +416,7 @@ public class MapActivityLayers {
 			builder.setListener(new ContextMenuAdapter.ItemClickListener() {
 				@Override
 				public boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter,
-												  int itemId, int position, boolean isChecked) {
+												  int itemId, int position, boolean isChecked, int[] viewCoordinates) {
 					ContextMenuItem item = adapter.getItem(position);
 					item.setSelected(isChecked);
 					return false;
@@ -563,6 +588,10 @@ public class MapActivityLayers {
 		return mFavouritesLayer;
 	}
 
+	public MeasurementToolLayer getMeasurementToolLayer() {
+		return measurementToolLayer;
+	}
+
 	public MapTextLayer getMapTextLayer() {
 		return mapTextLayer;
 	}
@@ -571,12 +600,20 @@ public class MapActivityLayers {
 		return locationLayer;
 	}
 
+	public RulerControlLayer getRulerControlLayer() {
+		return rulerControlLayer;
+	}
+
 	public MapInfoLayer getMapInfoLayer() {
 		return mapInfoLayer;
 	}
 
 	public MapControlsLayer getMapControlsLayer() {
 		return mapControlsLayer;
+	}
+
+	public MapQuickActionLayer getMapQuickActionLayer() {
+		return mapQuickActionLayer;
 	}
 
 	public MapMarkersLayer getMapMarkersLayer() {
