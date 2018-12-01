@@ -1,12 +1,16 @@
 package net.osmand.plus.activities;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
 import android.view.View;
@@ -15,6 +19,7 @@ import android.view.WindowManager;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -35,6 +40,7 @@ import net.osmand.plus.ContextMenuItem;
 import net.osmand.plus.ContextMenuItem.ItemBuilder;
 import net.osmand.plus.GPXUtilities;
 import net.osmand.plus.GPXUtilities.GPXFile;
+import net.osmand.plus.GPXUtilities.WptPt;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
 import net.osmand.plus.MapMarkersHelper;
 import net.osmand.plus.OsmAndLocationProvider;
@@ -45,7 +51,6 @@ import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper;
 import net.osmand.plus.Version;
 import net.osmand.plus.activities.actions.OsmAndDialogs;
-import net.osmand.plus.activities.search.SearchActivity;
 import net.osmand.plus.dashboard.DashboardOnMap.DashboardType;
 import net.osmand.plus.dialogs.FavoriteDialogs;
 import net.osmand.plus.download.IndexItem;
@@ -61,6 +66,9 @@ import net.osmand.plus.views.BaseMapLayer;
 import net.osmand.plus.views.MapControlsLayer;
 import net.osmand.plus.views.MapTileLayer;
 import net.osmand.plus.views.OsmandMapTileView;
+import net.osmand.plus.wikivoyage.WikivoyageWelcomeDialogFragment;
+import net.osmand.plus.wikivoyage.data.TravelDbHelper;
+import net.osmand.plus.wikivoyage.explore.WikivoyageExploreActivity;
 import net.osmand.router.GeneralRouter;
 
 import org.apache.commons.logging.Log;
@@ -71,6 +79,23 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_CONFIGURE_MAP_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_CONFIGURE_SCREEN_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_DASHBOARD_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_DIRECTIONS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_DIVIDER_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_DOWNLOAD_MAPS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_HELP_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_MAP_MARKERS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_MEASURE_DISTANCE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_MY_PLACES_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_OSMAND_LIVE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_PLUGINS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_SEARCH_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_SETTINGS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.DRAWER_TRAVEL_GUIDES_ID;
+import static net.osmand.plus.helpers.ImportHelper.GPX_SUFFIX;
+
 public class MapActivityActions implements DialogProvider {
 	private static final Log LOG = PlatformUtil.getLog(MapActivityActions.class);
 	public static final String KEY_LONGITUDE = "longitude";
@@ -78,6 +103,16 @@ public class MapActivityActions implements DialogProvider {
 	public static final String KEY_NAME = "name";
 
 	public static final String KEY_ZOOM = "zoom";
+	
+	public static final int REQUEST_LOCATION_FOR_DIRECTIONS_NAVIGATION_PERMISSION = 203;
+
+	// Constants for determining the order of items in the additional actions context menu
+	public static final int DIRECTIONS_FROM_ITEM_ORDER = 1000;
+	public static final int SEARCH_NEAR_ITEM_ORDER = 2000;
+	public static final int CHANGE_POSITION_ITEM_ORDER = 3000;
+	public static final int EDIT_GPX_WAYPOINT_ITEM_ORDER = 9000;
+	public static final int ADD_GPX_WAYPOINT_ITEM_ORDER = 9000;
+	public static final int MEASURE_DISTANCE_ITEM_ORDER = 13000;
 
 	private static final int DIALOG_ADD_FAVORITE = 100;
 	private static final int DIALOG_REPLACE_FAVORITE = 101;
@@ -85,6 +120,7 @@ public class MapActivityActions implements DialogProvider {
 	private static final int DIALOG_RELOAD_TITLE = 103;
 
 	private static final int DIALOG_SAVE_DIRECTIONS = 106;
+
 	// make static
 	private static Bundle dialogBundle = new Bundle();
 
@@ -92,10 +128,17 @@ public class MapActivityActions implements DialogProvider {
 	private OsmandSettings settings;
 	private RoutingHelper routingHelper;
 
+	@NonNull
+	private ImageView drawerLogoHeader;
+	private View drawerOsmAndFooter;
+
 	public MapActivityActions(MapActivity mapActivity) {
 		this.mapActivity = mapActivity;
 		settings = mapActivity.getMyApplication().getSettings();
 		routingHelper = mapActivity.getMyApplication().getRoutingHelper();
+		drawerLogoHeader = new ImageView(mapActivity);
+		drawerLogoHeader.setPadding(-AndroidUtils.dpToPx(mapActivity, 8f), AndroidUtils.dpToPx(mapActivity, 16f), 0,0);
+		drawerOsmAndFooter = mapActivity.getLayoutInflater().inflate(R.layout.powered_by_osmand_item, null);
 	}
 
 	public void addAsTarget(double latitude, double longitude, PointDescription pd) {
@@ -216,8 +259,8 @@ public class MapActivityActions implements DialogProvider {
 				fileDir.mkdirs();
 				File toSave = fileDir;
 				if (name.length() > 0) {
-					if (!name.endsWith(".gpx")) {
-						name += ".gpx";
+					if (!name.endsWith(GPX_SUFFIX)) {
+						name += GPX_SUFFIX;
 					}
 					toSave = new File(fileDir, name);
 				}
@@ -253,7 +296,8 @@ public class MapActivityActions implements DialogProvider {
 		protected String doInBackground(File... params) {
 			if (params.length > 0) {
 				File file = params[0];
-				GPXFile gpx = app.getRoutingHelper().generateGPXFileWithRoute();
+				String fileName = file.getName();
+				GPXFile gpx = app.getRoutingHelper().generateGPXFileWithRoute(fileName.substring(0,fileName.length()-GPX_SUFFIX.length()));
 				GPXUtilities.writeGpxFile(file, gpx, app);
 				return app.getString(R.string.route_successfully_saved_at, file.getName());
 			}
@@ -272,15 +316,18 @@ public class MapActivityActions implements DialogProvider {
 	public void contextMenuPoint(final double latitude, final double longitude, final ContextMenuAdapter iadapter, Object selectedObj) {
 		final ContextMenuAdapter adapter = iadapter == null ? new ContextMenuAdapter() : iadapter;
 		ItemBuilder itemBuilder = new ItemBuilder();
-		adapter.addItem(itemBuilder.setTitleId(R.string.context_menu_item_search, mapActivity)
-				.setIcon(R.drawable.ic_action_search_dark).createItem());
-		adapter.addItem(itemBuilder.setTitleId(R.string.context_menu_item_directions_from, mapActivity)
-				.setIcon(R.drawable.ic_action_gdirections_dark).createItem());
-		if (getMyApplication().getTargetPointsHelper().getPointToNavigate() != null &&
-				(mapActivity.getRoutingHelper().isFollowingMode() || mapActivity.getRoutingHelper().isRoutePlanningMode())) {
-			adapter.addItem(itemBuilder.setTitleId(R.string.context_menu_item_last_intermediate_point, mapActivity)
-					.setIcon(R.drawable.ic_action_intermediate).createItem());
-		}
+
+		adapter.addItem(itemBuilder
+				.setTitleId(R.string.context_menu_item_directions_from, mapActivity)
+				.setIcon(R.drawable.ic_action_route_direction_from_here)
+				.setOrder(DIRECTIONS_FROM_ITEM_ORDER)
+				.createItem());
+		adapter.addItem(itemBuilder
+				.setTitleId(R.string.context_menu_item_search, mapActivity)
+				.setIcon(R.drawable.ic_action_search_dark)
+				.setOrder(SEARCH_NEAR_ITEM_ORDER)
+				.createItem());
+
 		OsmandPlugin.registerMapContextMenu(mapActivity, latitude, longitude, adapter, selectedObj);
 
 		ContextMenuAdapter.ItemClickListener listener = new ContextMenuAdapter.ItemClickListener() {
@@ -295,23 +342,29 @@ public class MapActivityActions implements DialogProvider {
 			}
 		};
 
-		if (!mapActivity.getMyApplication().getSelectedGpxHelper().getSelectedGPXFiles().isEmpty()
+		if (selectedObj instanceof WptPt
+				&& getMyApplication().getSelectedGpxHelper().getSelectedGPXFile((WptPt) selectedObj) != null) {
+			adapter.addItem(new ContextMenuItem.ItemBuilder()
+					.setTitleId(R.string.context_menu_item_edit_waypoint, mapActivity)
+					.setIcon(R.drawable.ic_action_edit_dark)
+					.setOrder(EDIT_GPX_WAYPOINT_ITEM_ORDER)
+					.setListener(listener).createItem());
+		} else if (!getMyApplication().getSelectedGpxHelper().getSelectedGPXFiles().isEmpty()
 				|| (OsmandPlugin.getEnabledPlugin(OsmandMonitoringPlugin.class) != null)) {
 			adapter.addItem(new ContextMenuItem.ItemBuilder()
 					.setTitleId(R.string.context_menu_item_add_waypoint, mapActivity)
 					.setIcon(R.drawable.ic_action_gnew_label_dark)
+					.setOrder(ADD_GPX_WAYPOINT_ITEM_ORDER)
 					.setListener(listener).createItem());
 		}
 
-		if (selectedObj instanceof GPXUtilities.WptPt) {
-			GPXUtilities.WptPt pt = (GPXUtilities.WptPt) selectedObj;
-			if (getMyApplication().getSelectedGpxHelper().getSelectedGPXFile(pt) != null) {
-				adapter.addItem(new ContextMenuItem.ItemBuilder()
-						.setTitleId(R.string.context_menu_item_edit_waypoint, mapActivity)
-						.setIcon(R.drawable.ic_action_edit_dark)
-						.setListener(listener).createItem());
-			}
-		}
+		adapter.addItem(itemBuilder
+				.setTitleId(R.string.measurement_tool, mapActivity)
+				.setIcon(R.drawable.ic_action_ruler)
+				.setOrder(MEASURE_DISTANCE_ITEM_ORDER)
+				.createItem());
+
+		adapter.sortItemsByOrder();
 
 		final ArrayAdapter<ContextMenuItem> listAdapter =
 				adapter.createListAdapter(mapActivity, getMyApplication().getSettings().isLightContent());
@@ -325,27 +378,37 @@ public class MapActivityActions implements DialogProvider {
 				ItemClickListener click = item.getItemClickListener();
 				if (click != null) {
 					click.onContextMenuClick(listAdapter, standardId, position, false, null);
-				} else if (standardId == R.string.context_menu_item_last_intermediate_point) {
-					mapActivity.getContextMenu().addAsLastIntermediate();
 				} else if (standardId == R.string.context_menu_item_search) {
 					mapActivity.showQuickSearch(latitude, longitude);
 				} else if (standardId == R.string.context_menu_item_directions_from) {
-					mapActivity.getContextMenu().hide();
-					if (settings.USE_MAP_MARKERS.get()
-							&& getMyApplication().getTargetPointsHelper().getPointToNavigate() == null) {
-						setFirstMapMarkerAsTarget();
-					}
-					if (!mapActivity.getRoutingHelper().isFollowingMode() && !mapActivity.getRoutingHelper().isRoutePlanningMode()) {
-						enterRoutePlanningMode(new LatLon(latitude, longitude),
-								mapActivity.getContextMenu().getPointDescription());
+					if (OsmAndLocationProvider.isLocationPermissionAvailable(mapActivity)) {
+						enterDirectionsFromPoint(latitude, longitude);
+					} else if (!ActivityCompat.shouldShowRequestPermissionRationale(mapActivity, Manifest.permission.ACCESS_FINE_LOCATION)) {
+						mapActivity.getMyApplication().showToastMessage(R.string.ask_for_location_permission);
 					} else {
-						getMyApplication().getTargetPointsHelper().setStartPoint(new LatLon(latitude, longitude),
-								true, mapActivity.getContextMenu().getPointDescription());
+						ActivityCompat.requestPermissions(mapActivity, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, REQUEST_LOCATION_FOR_DIRECTIONS_NAVIGATION_PERMISSION);
 					}
+				} else if (standardId == R.string.measurement_tool) {
+					mapActivity.getContextMenu().close();
+					MeasurementToolFragment.showInstance(mapActivity.getSupportFragmentManager(), new LatLon(latitude, longitude));
 				}
 			}
 		});
 		actionsBottomSheetDialogFragment.show(mapActivity.getSupportFragmentManager(), AdditionalActionsBottomSheetDialogFragment.TAG);
+	}
+
+	public void enterDirectionsFromPoint(final double latitude, final double longitude) {
+		mapActivity.getContextMenu().hide();
+		if (getMyApplication().getTargetPointsHelper().getPointToNavigate() == null) {
+			setFirstMapMarkerAsTarget();
+		}
+		if (!mapActivity.getRoutingHelper().isFollowingMode() && !mapActivity.getRoutingHelper().isRoutePlanningMode()) {
+			enterRoutePlanningMode(new LatLon(latitude, longitude),
+					mapActivity.getContextMenu().getPointDescription());
+		} else {
+			getMyApplication().getTargetPointsHelper().setStartPoint(new LatLon(latitude, longitude),
+					true, mapActivity.getContextMenu().getPointDescription());
+		}
 	}
 
 	public void setGPXRouteParams(GPXFile result) {
@@ -610,6 +673,7 @@ public class MapActivityActions implements DialogProvider {
 		ContextMenuAdapter optionsMenuHelper = new ContextMenuAdapter();
 
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.home, mapActivity)
+				.setId(DRAWER_DASHBOARD_ID)
 				.setIcon(R.drawable.map_dashboard)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -621,33 +685,22 @@ public class MapActivityActions implements DialogProvider {
 						return true;
 					}
 				}).createItem());
-		if (settings.USE_MAP_MARKERS.get()) {
-			optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.map_markers, mapActivity)
-					.setIcon(R.drawable.ic_action_flag_dark)
-					.setListener(new ContextMenuAdapter.ItemClickListener() {
-						@Override
-						public boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter, int itemId, int pos, boolean isChecked, int[] viewCoordinates) {
-							app.logEvent(mapActivity, "drawer_markers_open");
-							MapActivity.clearPrevActivityIntent();
-							MapMarkersDialogFragment.showInstance(mapActivity);
-							return true;
-						}
-					}).createItem());
-		} else {
-			optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.waypoints, mapActivity)
-					.setIcon(R.drawable.ic_action_intermediate)
-					.setListener(new ContextMenuAdapter.ItemClickListener() {
-						@Override
-						public boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter, int itemId, int pos, boolean isChecked, int[] viewCoordinates) {
-							app.logEvent(mapActivity, "drawer_waypoints_open");
-							MapActivity.clearPrevActivityIntent();
-							mapActivity.getDashboard().setDashboardVisibility(true, DashboardType.WAYPOINTS, viewCoordinates);
-							return false;
-						}
-					}).createItem());
-		}
+
+		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.map_markers, mapActivity)
+				.setId(DRAWER_MAP_MARKERS_ID)
+				.setIcon(R.drawable.ic_action_flag_dark)
+				.setListener(new ContextMenuAdapter.ItemClickListener() {
+					@Override
+					public boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter, int itemId, int pos, boolean isChecked, int[] viewCoordinates) {
+						app.logEvent(mapActivity, "drawer_markers_open");
+						MapActivity.clearPrevActivityIntent();
+						MapMarkersDialogFragment.showInstance(mapActivity);
+						return true;
+					}
+				}).createItem());
 
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.shared_string_my_places, mapActivity)
+				.setId(DRAWER_MY_PLACES_ID)
 				.setIcon(R.drawable.ic_action_fav_dark)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -662,6 +715,7 @@ public class MapActivityActions implements DialogProvider {
 				}).createItem());
 
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.search_button, mapActivity)
+				.setId(DRAWER_SEARCH_ID)
 				.setIcon(R.drawable.ic_action_search_dark)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -672,29 +726,9 @@ public class MapActivityActions implements DialogProvider {
 					}
 				}).createItem());
 
-		if (settings.SHOW_LEGACY_SEARCH.get()) {
-			optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.legacy_search, mapActivity)
-					.setIcon(R.drawable.ic_action_search_dark)
-					.setListener(new ContextMenuAdapter.ItemClickListener() {
-						@Override
-						public boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter, int itemId, int pos, boolean isChecked, int[] viewCoordinates) {
-							app.logEvent(mapActivity, "drawer_legacy_search_open");
-							Intent newIntent = new Intent(mapActivity, mapActivity.getMyApplication().getAppCustomization()
-									.getSearchActivity());
-							LatLon loc = mapActivity.getMapLocation();
-							newIntent.putExtra(SearchActivity.SEARCH_LAT, loc.getLatitude());
-							newIntent.putExtra(SearchActivity.SEARCH_LON, loc.getLongitude());
-							if (mapActivity.getMapViewTrackingUtilities().isMapLinkedToLocation()) {
-								newIntent.putExtra(SearchActivity.SEARCH_NEARBY, true);
-							}
-							newIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-							mapActivity.startActivity(newIntent);
-							return true;
-						}
-					}).createItem());
-		}
-
+		
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.get_directions, mapActivity)
+				.setId(DRAWER_DIRECTIONS_ID)
 				.setIcon(R.drawable.ic_action_gdirections_dark)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -722,6 +756,7 @@ public class MapActivityActions implements DialogProvider {
 		*/
 
 		optionsMenuHelper.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.configure_map, mapActivity)
+				.setId(DRAWER_CONFIGURE_MAP_ID)
 				.setIcon(R.drawable.ic_action_layers_dark)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -741,6 +776,7 @@ public class MapActivityActions implements DialogProvider {
 			}
 		}
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.welmode_download_maps, null)
+				.setId(DRAWER_DOWNLOAD_MAPS_ID)
 				.setTitle(d).setIcon(R.drawable.ic_type_archive)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -756,6 +792,7 @@ public class MapActivityActions implements DialogProvider {
 
 		if (Version.isGooglePlayEnabled(app) || Version.isDeveloperVersion(app)) {
 			optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.osm_live, mapActivity)
+					.setId(DRAWER_OSMAND_LIVE_ID)
 					.setIcon(R.drawable.ic_action_osm_live)
 					.setListener(new ContextMenuAdapter.ItemClickListener() {
 						@Override
@@ -764,12 +801,33 @@ public class MapActivityActions implements DialogProvider {
 							Intent intent = new Intent(mapActivity, OsmLiveActivity.class);
 							intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
 							mapActivity.startActivity(intent);
-							return false;
+							return true;
 						}
 					}).createItem());
 		}
 
+		optionsMenuHelper.addItem(new ItemBuilder().setTitle(getString(R.string.shared_string_travel_guides) + " (Beta)")
+				.setId(DRAWER_TRAVEL_GUIDES_ID)
+				.setIcon(R.drawable.ic_action_travel)
+				.setListener(new ItemClickListener() {
+					@Override
+					public boolean onContextMenuClick(ArrayAdapter<ContextMenuItem> adapter, int itemId, int pos, boolean isChecked, int[] viewCoordinates) {
+						MapActivity.clearPrevActivityIntent();
+						TravelDbHelper travelDbHelper = getMyApplication().getTravelDbHelper();
+						travelDbHelper.initTravelBooks();
+						if (travelDbHelper.getSelectedTravelBook() == null) {
+							WikivoyageWelcomeDialogFragment.showInstance(mapActivity.getSupportFragmentManager());
+						} else {
+							Intent intent = new Intent(mapActivity, WikivoyageExploreActivity.class);
+							intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+							mapActivity.startActivity(intent);
+						}
+						return true;
+					}
+				}).createItem());
+
 		optionsMenuHelper.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.measurement_tool, mapActivity)
+				.setId(DRAWER_MEASURE_DISTANCE_ID)
 				.setIcon(R.drawable.ic_action_ruler)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -779,7 +837,10 @@ public class MapActivityActions implements DialogProvider {
 					}
 				}).createItem());
 
+		app.getAidlApi().registerNavDrawerItems(mapActivity, optionsMenuHelper);
+
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.layer_map_appearance, mapActivity)
+				.setId(DRAWER_CONFIGURE_SCREEN_ID)
 				.setIcon(R.drawable.ic_configure_screen_dark)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -792,6 +853,7 @@ public class MapActivityActions implements DialogProvider {
 				}).createItem());
 
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.prefs_plugins, mapActivity)
+				.setId(DRAWER_PLUGINS_ID)
 				.setIcon(R.drawable.ic_extension_dark)
 				.setListener(new ItemClickListener() {
 					@Override
@@ -806,6 +868,7 @@ public class MapActivityActions implements DialogProvider {
 				}).createItem());
 
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.shared_string_settings, mapActivity)
+				.setId(DRAWER_SETTINGS_ID)
 				.setIcon(R.drawable.ic_action_settings)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -833,6 +896,7 @@ public class MapActivityActions implements DialogProvider {
 		*/
 
 		optionsMenuHelper.addItem(new ItemBuilder().setTitleId(R.string.shared_string_help, mapActivity)
+				.setId(DRAWER_HELP_ID)
 				.setIcon(R.drawable.ic_action_help)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -858,10 +922,10 @@ public class MapActivityActions implements DialogProvider {
 		}
 
 		ItemBuilder divider = new ItemBuilder().setLayout(R.layout.drawer_divider);
+		divider.setId(DRAWER_DIVIDER_ID);
 		divider.setPosition(dividerItemIndex >= 0 ? dividerItemIndex : 8);
 		optionsMenuHelper.addItem(divider.createItem());
 
-		getMyApplication().getAppCustomization().prepareOptionsMenu(mapActivity, optionsMenuHelper);
 		return optionsMenuHelper;
 	}
 
@@ -877,7 +941,7 @@ public class MapActivityActions implements DialogProvider {
 		getMyApplication().stopNavigation();
 		mapActivity.updateApplicationModeSettings();
 		mapActivity.getDashboard().clearDeletedPoints();
-		List<ApplicationMode> modes = ApplicationMode.values(settings);
+		List<ApplicationMode> modes = ApplicationMode.values(getMyApplication());
 		for (ApplicationMode mode : modes) {
 			if (settings.FORCE_PRIVATE_ACCESS_ROUTING_ASKED.getModeValue(mode)) {
 				settings.FORCE_PRIVATE_ACCESS_ROUTING_ASKED.setModeValue(mode, false);
@@ -934,6 +998,15 @@ public class MapActivityActions implements DialogProvider {
 		} else {
 			menuItemsListView.setBackgroundColor(ContextCompat.getColor(mapActivity, R.color.bg_color_light));
 		}
+		menuItemsListView.removeHeaderView(drawerLogoHeader);
+		menuItemsListView.removeFooterView(drawerOsmAndFooter);
+		Bitmap navDrawerLogo = getMyApplication().getAppCustomization().getNavDrawerLogo();
+		boolean customHeader = false;
+		if (navDrawerLogo != null) {
+			customHeader = true;
+			drawerLogoHeader.setImageBitmap(navDrawerLogo);
+			menuItemsListView.addHeaderView(drawerLogoHeader);
+		}
 		menuItemsListView.setDivider(null);
 		final ContextMenuAdapter contextMenuAdapter = createMainOptionsMenu();
 		contextMenuAdapter.setDefaultLayoutId(R.layout.simple_list_menu_item);
@@ -944,14 +1017,56 @@ public class MapActivityActions implements DialogProvider {
 			@Override
 			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 				mapActivity.dismissCardDialog();
-				ContextMenuItem item = contextMenuAdapter.getItem(position);
-				ContextMenuAdapter.ItemClickListener click = item.getItemClickListener();
-				if (click != null && click.onContextMenuClick(simpleListAdapter, item.getTitleId(),
-						position, false, AndroidUtils.getCenterViewCoordinates(view))) {
+				boolean hasHeader = menuItemsListView.getHeaderViewsCount() > 0;
+				boolean hasFooter = menuItemsListView.getFooterViewsCount() > 0;
+				if ((hasHeader && position == 0) || (hasFooter && position == menuItemsListView.getCount() - 1)) {
+					getMyApplication().getAppCustomization().restoreOsmand();
 					mapActivity.closeDrawer();
+				} else {
+					position -= menuItemsListView.getHeaderViewsCount();
+					ContextMenuItem item = contextMenuAdapter.getItem(position);
+					ContextMenuAdapter.ItemClickListener click = item.getItemClickListener();
+					if (click != null && click.onContextMenuClick(simpleListAdapter, item.getTitleId(),
+							position, false, AndroidUtils.getCenterViewCoordinates(view))) {
+						mapActivity.closeDrawer();
+					}
 				}
 			}
 		});
+		if (customHeader) {
+			menuItemsListView.post(new Runnable() {
+				public void run() {
+					View footerLayout = mapActivity.findViewById(R.id.drawer_footer_layout);
+					boolean showFooterLayout = false;
+					if (menuItemsListView.getChildCount() > 0) {
+						int numItemsVisible = menuItemsListView.getLastVisiblePosition() -
+								menuItemsListView.getFirstVisiblePosition();
+						View lastView = menuItemsListView.getChildAt(menuItemsListView.getLastVisiblePosition());
+						boolean overlapped = lastView != null && lastView.getY() + lastView.getHeight() * 2 > menuItemsListView.getHeight();
+						if (simpleListAdapter.getCount() - 1 > numItemsVisible || overlapped) {
+							menuItemsListView.addFooterView(drawerOsmAndFooter);
+						} else {
+							showFooterLayout = true;
+						}
+					} else {
+						showFooterLayout = true;
+					}
+					if (showFooterLayout) {
+						footerLayout.setVisibility(View.VISIBLE);
+						footerLayout.setOnClickListener(new View.OnClickListener() {
+							@Override
+							public void onClick(View v) {
+								getMyApplication().getAppCustomization().restoreOsmand();
+								mapActivity.closeDrawer();
+
+							}
+						});
+					} else {
+						footerLayout.setVisibility(View.GONE);
+					}
+				}
+			});
+		}
 	}
 
 	public void setFirstMapMarkerAsTarget() {

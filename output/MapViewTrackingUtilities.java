@@ -99,17 +99,16 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 
 	public void setMapView(OsmandMapTileView mapView) {
 		this.mapView = mapView;
-		if(mapView != null) {
+		if (mapView != null) {
 			WindowManager wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
-			int orientation = wm.getDefaultDisplay().getOrientation();
-			app.getLocationProvider().updateScreenOrientation(orientation);
-			mapView.setMapLocationListener(this);
+			if (wm != null) {
+				int orientation = wm.getDefaultDisplay().getOrientation();
+				app.getLocationProvider().updateScreenOrientation(orientation);
+				mapView.setMapLocationListener(this);
+			}
 		}
 	}
 
-	public Location getMyLocation() {
-		return myLocation;
-	}
 
 	public Float getHeading() {
 		return heading;
@@ -121,22 +120,28 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 
 	@Override
 	public void updateCompassValue(float val) {
+		Float prevHeading = heading;
 		heading = val;
+		boolean headingChanged = prevHeading == null;
+		if (!headingChanged) {
+			headingChanged = Math.abs(MapUtils.degreesDiff(prevHeading, heading)) > 1.0;
+		}
 		if (mapView != null) {
 			float speedForDirectionOfMovement = settings.SWITCH_MAP_DIRECTION_TO_COMPASS.get();
-			boolean smallSpeedForDirectionOfMovement = speedForDirectionOfMovement != 0 && getMyLocation() != null && isSmallSpeedForDirectionOfMovement(getMyLocation(), speedForDirectionOfMovement);
+			boolean smallSpeedForDirectionOfMovement = speedForDirectionOfMovement != 0 && 
+					myLocation != null && isSmallSpeedForDirectionOfMovement(myLocation, speedForDirectionOfMovement);
 			if ((settings.ROTATE_MAP.get() == OsmandSettings.ROTATE_MAP_COMPASS || (settings.ROTATE_MAP.get() == OsmandSettings.ROTATE_MAP_BEARING && smallSpeedForDirectionOfMovement)) && !routePlanningMode) {
-				if (Math.abs(MapUtils.degreesDiff(mapView.getRotate(), -val)) > 1) {
+				if (Math.abs(MapUtils.degreesDiff(mapView.getRotate(), -val)) > 1.0) {
 					mapView.setRotate(-val);
 				}
-			} else if (showViewAngle) {
+			} else if (showViewAngle && headingChanged) {
 				mapView.refreshMap();
 			}
 		}
-		if(dashboard != null) {
+		if (dashboard != null && headingChanged) {
 			dashboard.updateCompassValue(val);
 		}
-		if(contextMenu != null) {
+		if (contextMenu != null && headingChanged) {
 			contextMenu.updateCompassValue(val);
 		}
 	}
@@ -154,33 +159,7 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 	}
 
 	private void detectDrivingRegion(final LatLon latLon) {
-
-		new AsyncTask<LatLon, Void, BinaryMapDataObject>() {
-
-			@Override
-			protected BinaryMapDataObject doInBackground(LatLon... latLons) {
-				try {
-					if (latLons != null && latLons.length > 0) {
-						return app.getRegions().findBinaryMapDataObject(latLons[0]);
-					}
-				} catch (IOException e) {
-					// ignore
-				}
-				return null;
-			}
-
-			@Override
-			protected void onPostExecute(BinaryMapDataObject o) {
-				if (o != null) {
-					String fullName = app.getRegions().getFullName(o);
-					WorldRegion worldRegion = app.getRegions().getRegionData(fullName);
-					if (worldRegion != null) {
-						app.setupDrivingRegion(worldRegion);
-					}
-				}
-			}
-
-		}.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, latLon);
+		new DetectDrivingRegionTask(app).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, latLon);
 	}
 
 	@Override
@@ -195,16 +174,17 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 			}
 		}
 		if (mapView != null) {
-			RotatedTileBox tb = mapView.getCurrentRotatedTileBox();
+			RotatedTileBox tb = mapView.getCurrentRotatedTileBox().copy();
 			if (isMapLinkedToLocation() && location != null) {
 				Pair<Integer, Double> zoom = null;
 				Float rotation = null;
 				if (settings.AUTO_ZOOM_MAP.get()) {
-					zoom = autozoom(location);
+					zoom = autozoom(tb, location);
 				}
 				int currentMapRotation = settings.ROTATE_MAP.get();
 				float speedForDirectionOfMovement = settings.SWITCH_MAP_DIRECTION_TO_COMPASS.get();
-				boolean smallSpeedForDirectionOfMovement = speedForDirectionOfMovement != 0 && isSmallSpeedForDirectionOfMovement(location, speedForDirectionOfMovement);
+				boolean smallSpeedForDirectionOfMovement = speedForDirectionOfMovement != 0
+						&& isSmallSpeedForDirectionOfMovement(location, speedForDirectionOfMovement);
 				boolean smallSpeedForCompass = isSmallSpeedForCompass(location);
 				boolean smallSpeedForAnimation = isSmallSpeedForAnimation(location);
 				// boolean virtualBearing = fMode && settings.SNAP_TO_ROAD.get();
@@ -228,7 +208,7 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 					mapView.getAnimatedDraggingThread().startMoving(
 							location.getLatitude(), location.getLongitude(), zoom, rotation, false);
 				} else {
-					if (zoom != null) {
+					if (zoom != null && zoom.first != null && zoom.second != null) {
 						mapView.getAnimatedDraggingThread().startZooming(zoom.first, zoom.second, false);
 					}
 					if (rotation != null) {
@@ -236,24 +216,24 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 					}
 					mapView.setLatLon(location.getLatitude(), location.getLongitude());
 				}
-			} else if(location != null) {
+			} else if (location != null) {
 				showViewAngle = (!location.hasBearing() || isSmallSpeedForCompass(location)) && (tb != null &&
 						tb.containsLatLon(location.getLatitude(), location.getLongitude()));
 				registerUnregisterSensor(location, false);
 			}
 			RoutingHelper routingHelper = app.getRoutingHelper();
 			followingMode = routingHelper.isFollowingMode();
-			if(routePlanningMode != routingHelper.isRoutePlanningMode()) {
+			if (routePlanningMode != routingHelper.isRoutePlanningMode()) {
 				switchToRoutePlanningMode();
 			}
 			// When location is changed we need to refresh map in order to show movement!
 			mapView.refreshMap();
 		}
 
-		if(dashboard != null) {
+		if (dashboard != null) {
 			dashboard.updateMyLocation(location);
 		}
-		if(contextMenu != null) {
+		if (contextMenu != null) {
 			contextMenu.updateMyLocation(location);
 		}
 	}
@@ -321,15 +301,13 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 		}
 		time /= settings.AUTO_ZOOM_MAP_SCALE.get().coefficient;
 		double distToSee = speed * time;
-		float zoomDelta = (float) (Math.log(visibleDist / distToSee) / Math.log(2.0f));
 		// check if 17, 18 is correct?
-		return zoomDelta;
+		return (float) (Math.log(visibleDist / distToSee) / Math.log(2.0f));
 	}
 
-	public Pair<Integer, Double> autozoom(Location location) {
+	public Pair<Integer, Double> autozoom(RotatedTileBox tb, Location location) {
 		if (location.hasSpeed()) {
 			long now = System.currentTimeMillis();
-			final RotatedTileBox tb = mapView.getCurrentRotatedTileBox();
 			float zdelta = defineZoomFromSpeed(tb, location.getSpeed());
 			if (Math.abs(zdelta) >= 0.5/*?Math.sqrt(0.5)*/) {
 				// prevent ui hysteresis (check time interval for autozoom)
@@ -442,6 +420,20 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 			mapView.refreshMap();
 		}
 	}
+	
+	public LatLon getMapLocation() {
+		if (mapView == null) {
+			return settings.getLastKnownMapLocation();
+		}
+		return new LatLon(mapView.getLatitude(), mapView.getLongitude());
+	}
+	
+	public Float getMapRotate() {
+		if (mapView == null) {
+			return null;
+		}
+		return mapView.getRotate();
+	}
 
 	@Override
 	public void newRouteIsCalculated(boolean newRoute, ValueHolder<Boolean> showToast) {
@@ -469,4 +461,35 @@ public class MapViewTrackingUtilities implements OsmAndLocationListener, IMapLoc
 		isUserZoomed = true;
 	}
 
+	private static class DetectDrivingRegionTask extends AsyncTask<LatLon, Void, BinaryMapDataObject> {
+
+		private OsmandApplication app;
+
+		DetectDrivingRegionTask(OsmandApplication app) {
+			this.app = app;
+		}
+
+		@Override
+		protected BinaryMapDataObject doInBackground(LatLon... latLons) {
+			try {
+				if (latLons != null && latLons.length > 0) {
+					return app.getRegions().getSmallestBinaryMapDataObjectAt(latLons[0]);
+				}
+			} catch (IOException e) {
+				// ignore
+			}
+			return null;
+		}
+
+		@Override
+		protected void onPostExecute(BinaryMapDataObject o) {
+			if (o != null) {
+				String fullName = app.getRegions().getFullName(o);
+				WorldRegion worldRegion = app.getRegions().getRegionData(fullName);
+				if (worldRegion != null) {
+					app.setupDrivingRegion(worldRegion);
+				}
+			}
+		}
+	}
 }

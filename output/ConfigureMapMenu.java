@@ -22,7 +22,6 @@ import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import net.osmand.AndroidUtils;
 import net.osmand.PlatformUtil;
@@ -42,15 +41,12 @@ import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.MapActivityLayers;
 import net.osmand.plus.activities.PluginActivity;
 import net.osmand.plus.activities.SettingsActivity;
-import net.osmand.plus.dashboard.DashboardOnMap;
-import net.osmand.plus.openseamapsplugin.NauticalMapsPlugin;
+import net.osmand.plus.inapp.InAppPurchaseHelper;
 import net.osmand.plus.poi.PoiFiltersHelper;
 import net.osmand.plus.rastermaps.OsmandRasterMapsPlugin;
 import net.osmand.plus.render.RendererRegistry;
 import net.osmand.plus.srtmplugin.SRTMPlugin;
-import net.osmand.plus.views.GPXLayer;
 import net.osmand.plus.views.OsmandMapTileView;
-import net.osmand.plus.views.RouteLayer;
 import net.osmand.plus.views.corenative.NativeCoreContext;
 import net.osmand.render.RenderingRule;
 import net.osmand.render.RenderingRuleProperty;
@@ -62,7 +58,6 @@ import org.apache.commons.logging.Log;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -73,6 +68,27 @@ import java.util.Map;
 
 import gnu.trove.list.array.TIntArrayList;
 
+import static net.osmand.plus.OsmAndCustomizationConstants.APP_PROFILES_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.CUSTOM_RENDERING_ITEMS_ID_SCHEME;
+import static net.osmand.plus.OsmAndCustomizationConstants.DETAILS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.FAVORITES_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.GPX_FILES_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.HIDE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_LANGUAGE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_MAGNIFIER_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_MARKERS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_MODE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_RENDERING_CATEGORY_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_SOURCE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAP_STYLE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.POI_OVERLAY_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.POI_OVERLAY_LABELS_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.ROAD_STYLE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.ROUTES_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.SHOW_CATEGORY_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.TEXT_SIZE_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.TRANSPORT_ID;
+import static net.osmand.plus.OsmAndCustomizationConstants.TRANSPORT_RENDERING_ID;
 import static net.osmand.plus.srtmplugin.SRTMPlugin.CONTOUR_DENSITY_ATTR;
 import static net.osmand.plus.srtmplugin.SRTMPlugin.CONTOUR_LINES_ATTR;
 import static net.osmand.plus.srtmplugin.SRTMPlugin.CONTOUR_LINES_SCHEME_ATTR;
@@ -85,6 +101,7 @@ public class ConfigureMapMenu {
 	public static final String CURRENT_TRACK_WIDTH_ATTR = "currentTrackWidth";
 	public static final String COLOR_ATTR = "color";
 	public static final String ROAD_STYLE_ATTR = "roadStyle";
+
 	private int hikingRouteOSMCValue;
 	private int selectedLanguageIndex;
 	private boolean transliterateNames;
@@ -94,9 +111,11 @@ public class ConfigureMapMenu {
 	}
 
 	public ContextMenuAdapter createListAdapter(final MapActivity ma) {
+		OsmandApplication app = ma.getMyApplication();
 		ContextMenuAdapter adapter = new ContextMenuAdapter();
 		adapter.setDefaultLayoutId(R.layout.list_item_icon_and_menu);
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(APP_PROFILES_ID)
 				.setTitleId(R.string.app_modes_choose, ma)
 				.setLayout(R.layout.mode_toggles).createItem());
 		adapter.setChangeAppModeListener(new OnClickListener() {
@@ -105,13 +124,14 @@ public class ConfigureMapMenu {
 				ma.getDashboard().updateListAdapter(createListAdapter(ma));
 			}
 		});
-		RenderingRulesStorage renderer = ma.getMyApplication().getRendererRegistry().getCurrentSelectedRenderer();
+		RenderingRulesStorage renderer = app.getRendererRegistry().getCurrentSelectedRenderer();
 		List<RenderingRuleProperty> customRules = new ArrayList<>();
-		boolean hasDepthContours = ma.getMyApplication().getResourceManager().hasDepthContours();
+		boolean useDepthContours = app.getResourceManager().hasDepthContours()
+				&& (InAppPurchaseHelper.isSubscribedToLiveUpdates(app) || InAppPurchaseHelper.isDepthContoursPurchased(app));
 		if (renderer != null) {
 			for (RenderingRuleProperty p : renderer.PROPS.getCustomRules()) {
 				if (!RenderingRuleStorageProperties.UI_CATEGORY_HIDDEN.equals(p.getCategory())
-						&& (hasDepthContours || !p.getAttrName().equals("depthContours"))) {
+						&& (useDepthContours || !p.getAttrName().equals("depthContours"))) {
 					customRules.add(p);
 				}
 			}
@@ -189,6 +209,8 @@ public class ConfigureMapMenu {
 				} else {
 					showGpxSelectionDialog(adapter, adapter.getItem(pos));
 				}
+			} else if (itemId == R.string.map_markers) {
+				settings.SHOW_MAP_MARKERS.set(isChecked);
 			} else if (itemId == R.string.layer_map) {
 				if (OsmandPlugin.getEnabledPlugin(OsmandRasterMapsPlugin.class) == null) {
 					Intent intent = new Intent(ma, PluginActivity.class);
@@ -252,11 +274,13 @@ public class ConfigureMapMenu {
 		final OsmandSettings settings = app.getSettings();
 		LayerMenuListener l = new LayerMenuListener(activity, adapter);
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(SHOW_CATEGORY_ID)
 				.setTitleId(R.string.shared_string_show, activity)
 				.setCategory(true).setLayout(R.layout.list_group_title_with_switch).createItem());
 		// String appMode = " [" + settings.getApplicationMode().toHumanString(view.getApplication()) +"] ";
 		boolean selected = settings.SHOW_FAVORITES.get();
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(FAVORITES_ID)
 				.setTitleId(R.string.shared_string_favorites, activity)
 				.setSelected(settings.SHOW_FAVORITES.get())
 				.setColor(selected ? R.color.osmand_orange : ContextMenuItem.INVALID_ID)
@@ -264,6 +288,7 @@ public class ConfigureMapMenu {
 				.setListener(l).createItem());
 		selected = app.getPoiFilters().isShowingAnyPoi();
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(POI_OVERLAY_ID)
 				.setTitleId(R.string.layer_poi, activity)
 				.setSelected(selected)
 				.setDescription(app.getPoiFilters().getSelectedPoiFiltersName())
@@ -273,6 +298,7 @@ public class ConfigureMapMenu {
 				.setListener(l).createItem());
 		selected = settings.SHOW_POI_LABEL.get();
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(POI_OVERLAY_LABELS_ID)
 				.setTitleId(R.string.layer_amenity_label, activity)
 				.setSelected(settings.SHOW_POI_LABEL.get())
 				.setColor(selected ? R.color.osmand_orange : ContextMenuItem.INVALID_ID)
@@ -309,6 +335,7 @@ public class ConfigureMapMenu {
 		}
 		final boolean transportSelected = selected;
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(TRANSPORT_ID)
 				.setTitleId(R.string.rendering_category_transport, activity)
 				.setIcon(R.drawable.ic_action_bus_dark)
 				.setSecondaryIcon(R.drawable.ic_action_additional_option)
@@ -390,9 +417,9 @@ public class ConfigureMapMenu {
 								View v = super.getView(position, convertView, parent);
 								final ImageView icon = (ImageView) v.findViewById(R.id.icon);
 								if (checkedItems[position]) {
-									icon.setImageDrawable(app.getIconsCache().getIcon(iconIds[position], R.color.osmand_orange));
+									icon.setImageDrawable(app.getUIUtilities().getIcon(iconIds[position], R.color.osmand_orange));
 								} else {
-									icon.setImageDrawable(app.getIconsCache().getThemedIcon(iconIds[position]));
+									icon.setImageDrawable(app.getUIUtilities().getThemedIcon(iconIds[position]));
 								}
 								v.findViewById(R.id.divider).setVisibility(View.GONE);
 								v.findViewById(R.id.description).setVisibility(View.GONE);
@@ -405,9 +432,9 @@ public class ConfigureMapMenu {
 									public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
 										checkedItems[position] = isChecked;
 										if (checkedItems[position]) {
-											icon.setImageDrawable(app.getIconsCache().getIcon(iconIds[position], R.color.osmand_orange));
+											icon.setImageDrawable(app.getUIUtilities().getIcon(iconIds[position], R.color.osmand_orange));
 										} else {
-											icon.setImageDrawable(app.getIconsCache().getThemedIcon(iconIds[position]));
+											icon.setImageDrawable(app.getUIUtilities().getThemedIcon(iconIds[position]));
 										}
 									}
 								});
@@ -460,6 +487,7 @@ public class ConfigureMapMenu {
 				}).createItem());
 		selected = app.getSelectedGpxHelper().isShowingAnyGpxFiles();
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(GPX_FILES_ID)
 				.setTitleId(R.string.layer_gpx_layer, activity)
 				.setSelected(app.getSelectedGpxHelper().isShowingAnyGpxFiles())
 				.setDescription(app.getSelectedGpxHelper().getGpxDescription())
@@ -467,15 +495,26 @@ public class ConfigureMapMenu {
 				.setIcon(R.drawable.ic_action_polygom_dark)
 				.setSecondaryIcon(R.drawable.ic_action_additional_option)
 				.setListener(l).createItem());
+
+		selected = settings.SHOW_MAP_MARKERS.get();
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(MAP_MARKERS_ID)
+				.setTitleId(R.string.map_markers, activity)
+				.setSelected(selected)
+				.setColor(selected ? R.color.osmand_orange : ContextMenuItem.INVALID_ID)
+				.setIcon(R.drawable.ic_action_flag_dark)
+				.setListener(l).createItem());
+
+		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(MAP_SOURCE_ID)
 				.setTitleId(R.string.layer_map, activity)
 				.setIcon(R.drawable.ic_world_globe_dark)
 				.setDescription(settings.MAP_ONLINE_DATA.get() ? settings.MAP_TILE_SOURCES.get() : null)
 				.setListener(l).createItem());
 
 		OsmandPlugin.registerLayerContextMenu(activity.getMapView(), adapter, activity);
-		app.getAppCustomization().prepareLayerContextMenu(activity, adapter);
-		boolean srtmDisabled = OsmandPlugin.getEnabledPlugin(SRTMPlugin.class) == null;
+		boolean srtmDisabled = OsmandPlugin.getEnabledPlugin(SRTMPlugin.class) == null
+				&& !InAppPurchaseHelper.isSubscribedToLiveUpdates(app);
 		if (srtmDisabled) {
 			SRTMPlugin srtmPlugin = OsmandPlugin.getPlugin(SRTMPlugin.class);
 			if (srtmPlugin != null) {
@@ -493,61 +532,23 @@ public class ConfigureMapMenu {
 	private void createRenderingAttributeItems(List<RenderingRuleProperty> customRules,
 											   final ContextMenuAdapter adapter, final MapActivity activity) {
 		adapter.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.map_widget_map_rendering, activity)
+				.setId(MAP_RENDERING_CATEGORY_ID)
 				.setCategory(true).setLayout(R.layout.list_group_title_with_switch).createItem());
 		adapter.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.map_widget_renderer, activity)
+				.setId(MAP_STYLE_ID)
 				.setDescription(getRenderDescr(activity)).setLayout(R.layout.list_item_single_line_descrition_narrow)
 				.setIcon(R.drawable.ic_map).setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
 					public boolean onContextMenuClick(final ArrayAdapter<ContextMenuItem> ad, int itemId,
 													  final int pos, boolean isChecked, int[] viewCoordinates) {
-						AlertDialog.Builder bld = new AlertDialog.Builder(activity);
-						bld.setTitle(R.string.renderers);
-						final OsmandApplication app = activity.getMyApplication();
-						Collection<String> rendererNames = app.getRendererRegistry().getRendererNames();
-						final String[] items = rendererNames.toArray(new String[rendererNames.size()]);
-						boolean nauticalPluginDisabled = OsmandPlugin.getEnabledPlugin(NauticalMapsPlugin.class) == null;
-						final List<String> visibleNamesList = new ArrayList<>();
-						int selected = -1;
-						final String selectedName = app.getRendererRegistry().getCurrentSelectedRenderer().getName();
-						int i = 0;
-						for (String item : items) {
-							if (nauticalPluginDisabled && item.equals(RendererRegistry.NAUTICAL_RENDER)) {
-								continue;
-							}
-							if (item.equals(selectedName)) {
-								selected = i;
-							}
-							visibleNamesList.add(item.replace('_', ' ').replace('-', ' '));
-							i++;
-						}
-
-						bld.setSingleChoiceItems(visibleNamesList.toArray(new String[visibleNamesList.size()]), selected, new DialogInterface.OnClickListener() {
-
-							@Override
-							public void onClick(DialogInterface dialog, int which) {
-								String renderer = visibleNamesList.get(which);
-								RenderingRulesStorage loaded = app.getRendererRegistry().getRenderer(renderer);
-								if (loaded != null) {
-									OsmandMapTileView view = activity.getMapView();
-									view.getSettings().RENDERER.set(renderer);
-									app.getRendererRegistry().setCurrentSelectedRender(loaded);
-									refreshMapComplete(activity);
-								} else {
-									Toast.makeText(app, R.string.renderer_load_exception, Toast.LENGTH_SHORT).show();
-								}
-								adapter.getItem(pos).setDescription(getRenderDescr(activity));
-								activity.getDashboard().refreshContent(true);
-								dialog.dismiss();
-							}
-
-						});
-						bld.setNegativeButton(R.string.shared_string_dismiss, null);
-						bld.show();
+						new SelectMapStyleBottomSheetDialogFragment().show(activity.getSupportFragmentManager(),
+								SelectMapStyleBottomSheetDialogFragment.TAG);
 						return false;
 					}
 				}).createItem());
 
 		adapter.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.map_mode, activity)
+				.setId(MAP_MODE_ID)
 				.setDescription(getDayNightDescr(activity)).setLayout(R.layout.list_item_single_line_descrition_narrow)
 				.setIcon(getDayNightIcon(activity)).setListener(new ItemClickListener() {
 					@Override
@@ -580,6 +581,7 @@ public class ConfigureMapMenu {
 				}).createItem());
 
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(MAP_MAGNIFIER_ID)
 				.setTitleId(R.string.map_magnifier, activity)
 				.setDescription(
 						String.format(Locale.UK, "%.0f",
@@ -593,7 +595,7 @@ public class ConfigureMapMenu {
 						final OsmandSettings.OsmandPreference<Float> mapDensity = view.getSettings().MAP_DENSITY;
 						final AlertDialog.Builder bld = new AlertDialog.Builder(view.getContext());
 						int p = (int) (mapDensity.get() * 100);
-						final TIntArrayList tlist = new TIntArrayList(new int[]{33, 50, 75, 100, 150, 200, 300, 400});
+						final TIntArrayList tlist = new TIntArrayList(new int[]{25, 33, 50, 75, 100, 125, 150, 200, 300, 400});
 						final List<String> values = new ArrayList<>();
 						int i = -1;
 						for (int k = 0; k <= tlist.size(); k++) {
@@ -641,12 +643,13 @@ public class ConfigureMapMenu {
 				}).createItem());
 
 		ContextMenuItem props;
-		props = createRenderingProperty(customRules, adapter, activity, R.drawable.ic_action_intersection, ROAD_STYLE_ATTR);
+		props = createRenderingProperty(customRules, adapter, activity, R.drawable.ic_action_intersection, ROAD_STYLE_ATTR, ROAD_STYLE_ID);
 		if (props != null) {
 			adapter.addItem(props);
 		}
 
 		adapter.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.text_size, activity)
+				.setId(TEXT_SIZE_ID)
 				.setDescription(getScale(activity)).setLayout(R.layout.list_item_single_line_descrition_narrow)
 				.setIcon(R.drawable.ic_action_map_text_size).setListener(new ContextMenuAdapter.ItemClickListener() {
 					@Override
@@ -685,6 +688,7 @@ public class ConfigureMapMenu {
 		localeDescr = localeDescr == null || localeDescr.equals("") ? activity.getString(R.string.local_map_names)
 				: localeDescr;
 		adapter.addItem(new ContextMenuItem.ItemBuilder().setTitleId(R.string.map_locale, activity)
+				.setId(MAP_LANGUAGE_ID)
 				.setDescription(localeDescr).setLayout(R.layout.list_item_single_line_descrition_narrow)
 				.setIcon(R.drawable.ic_action_map_language)
 				.setListener(new ContextMenuAdapter.ItemClickListener() {
@@ -775,17 +779,17 @@ public class ConfigureMapMenu {
 				}).createItem());
 
 		props = createProperties(customRules, null, R.string.rendering_category_transport, R.drawable.ic_action_bus_dark,
-				"transport", null, adapter, activity, true);
+				"transport", null, adapter, activity, true, TRANSPORT_RENDERING_ID);
 		if (props != null) {
 			adapter.addItem(props);
 		}
 		props = createProperties(customRules, null, R.string.rendering_category_details, R.drawable.ic_action_layers_dark,
-				"details", null, adapter, activity, true);
+				"details", null, adapter, activity, true, DETAILS_ID);
 		if (props != null) {
 			adapter.addItem(props);
 		}
 		props = createProperties(customRules, null, R.string.rendering_category_hide, R.drawable.ic_action_hide,
-				"hide", null, adapter, activity, true);
+				"hide", null, adapter, activity, true, HIDE_ID);
 		if (props != null) {
 			adapter.addItem(props);
 		}
@@ -797,7 +801,7 @@ public class ConfigureMapMenu {
 			}
 		}
 		props = createProperties(customRules, customRulesIncluded, R.string.rendering_category_routes, R.drawable.ic_action_map_routes,
-				"routes", null, adapter, activity, true);
+				"routes", null, adapter, activity, true, ROUTES_ID);
 		if (props != null) {
 			adapter.addItem(props);
 		}
@@ -809,7 +813,7 @@ public class ConfigureMapMenu {
 		}
 	}
 
-	public static String[] mapNamesIds = new String[]{"", "en", "af", "als", "ar", "az", "be", "ber", "bg", "bn", "bpy", "br", "bs", "ca", "ceb", "cs", "cy", "da", "de", "el", "eo", "es", "et", "eu", "fa", "fi", "fr", "fy", "ga", "gl", "he", "hi", "hsb", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "ka", "kab", "ko", "ku", "la", "lb", "lt", "lv", "mk", "ml", "mr", "ms", "nds", "new", "nl", "nn", "no", "nv", "os", "pl", "pms", "pt", "ro", "ru", "sc", "sh", "sk", "sl", "sq", "sr", "sv", "sw", "ta", "te", "th", "tl", "tr", "uk", "vi", "vo", "zh"};
+	public static String[] mapNamesIds = new String[]{"", "en", "af", "als", "ar", "az", "be", "ber", "bg", "bn", "bpy", "br", "bs", "ca", "ceb", "cs", "cy", "da", "de", "el", "eo", "es", "et", "eu", "fa", "fi", "fr", "fy", "ga", "gl", "he", "hi", "hsb", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "ka", "kab", "ko", "ku", "la", "lb", "lo", "lt", "lv", "mk", "ml", "mr", "ms", "nds", "new", "nl", "nn", "no", "nv", "os", "pl", "pms", "pt", "ro", "ru", "sc", "sh", "sk", "sl", "sq", "sr", "sv", "sw", "ta", "te", "th", "tl", "tr", "uk", "vi", "vo", "zh"};
 
 	public static String[] getSortedMapNamesIds(Context ctx, String[] ids, String[] values) {
 		final Map<String, String> mp = new HashMap<>();
@@ -859,7 +863,8 @@ public class ConfigureMapMenu {
 											 final ListStringPreference defaultSettings,
 											 final ContextMenuAdapter adapter,
 											 final MapActivity activity,
-											 final boolean useDescription) {
+											 final boolean useDescription,
+											 final String id) {
 
 		final List<RenderingRuleProperty> ps = new ArrayList<>();
 		final List<OsmandSettings.CommonPreference<Boolean>> prefs = new ArrayList<>();
@@ -915,6 +920,7 @@ public class ConfigureMapMenu {
 
 			};
 			ContextMenuItem.ItemBuilder builder = new ContextMenuItem.ItemBuilder().setTitleId(strId, activity)
+					.setId(id)
 					.setIcon(icon).setListener(clickListener);
 			boolean selected = false;
 			for (OsmandSettings.CommonPreference<Boolean> p : prefs) {
@@ -1135,7 +1141,8 @@ public class ConfigureMapMenu {
 		if (storage == null) {
 			return "";
 		}
-		return storage.getName();
+		String translation = RendererRegistry.getTranslatedRendererName(activity, storage.getName());
+		return translation == null ? storage.getName() : translation;
 	}
 
 	protected String getDayNightDescr(final MapActivity activity) {
@@ -1169,7 +1176,7 @@ public class ConfigureMapMenu {
 												 List<RenderingRuleProperty> customRules) {
 		for (final RenderingRuleProperty p : customRules) {
 			if (isPropertyAccepted(p)) {
-				adapter.addItem(createRenderingProperty(adapter, activity, 0, p));
+				adapter.addItem(createRenderingProperty(adapter, activity, 0, p, CUSTOM_RENDERING_ITEMS_ID_SCHEME + p.getName()));
 			}
 		}
 	}
@@ -1186,17 +1193,17 @@ public class ConfigureMapMenu {
 
 	private ContextMenuItem createRenderingProperty(final List<RenderingRuleProperty> customRules,
 													final ContextMenuAdapter adapter, final MapActivity activity,
-													@DrawableRes final int icon, final String attrName) {
+													@DrawableRes final int icon, final String attrName, String id) {
 		for (final RenderingRuleProperty p : customRules) {
 			if (p.getAttrName().equals(attrName)) {
-				return createRenderingProperty(adapter, activity, icon, p);
+				return createRenderingProperty(adapter, activity, icon, p, id);
 			}
 		}
 		return null;
 	}
 
 	private ContextMenuItem createRenderingProperty(final ContextMenuAdapter adapter, final MapActivity activity,
-										 @DrawableRes final int icon, final RenderingRuleProperty p) {
+										 @DrawableRes final int icon, final RenderingRuleProperty p, final String id) {
 		final OsmandMapTileView view = activity.getMapView();
 		String propertyName = SettingsActivity.getStringPropertyName(view.getContext(), p.getAttrName(),
 				p.getName());
@@ -1207,6 +1214,7 @@ public class ConfigureMapMenu {
 			final OsmandSettings.CommonPreference<Boolean> pref = view.getApplication().getSettings()
 					.getCustomRenderBooleanProperty(p.getAttrName());
 			return ContextMenuItem.createBuilder(propertyName)
+					.setId(id)
 					.setListener(new ContextMenuAdapter.ItemClickListener() {
 
 						@Override
@@ -1229,6 +1237,7 @@ public class ConfigureMapMenu {
 						p.getDefaultValueDescription());
 			}
 			ContextMenuItem.ItemBuilder builder = ContextMenuItem.createBuilder(propertyName)
+					.setId(id)
 					.setListener(new ContextMenuAdapter.ItemClickListener() {
 
 						@Override
@@ -1427,14 +1436,14 @@ public class ConfigureMapMenu {
 						iconId = R.drawable.ic_action_gpx_width_thin;
 					}
 					textView.setCompoundDrawablesWithIntrinsicBounds(null, null,
-							app.getIconsCache().getPaintedIcon(iconId, currentColor), null);
+							app.getUIUtilities().getPaintedIcon(iconId, currentColor), null);
 				} else {
 					if (item.color == -1) {
 						textView.setCompoundDrawablesWithIntrinsicBounds(null, null,
-								app.getIconsCache().getThemedIcon(R.drawable.ic_action_circle), null);
+								app.getUIUtilities().getThemedIcon(R.drawable.ic_action_circle), null);
 					} else {
 						textView.setCompoundDrawablesWithIntrinsicBounds(null, null,
-								app.getIconsCache().getPaintedIcon(R.drawable.ic_action_circle, item.color), null);
+								app.getUIUtilities().getPaintedIcon(R.drawable.ic_action_circle, item.color), null);
 					}
 				}
 				textView.setCompoundDrawablePadding(AndroidUtils.dpToPx(getContext(), 10f));

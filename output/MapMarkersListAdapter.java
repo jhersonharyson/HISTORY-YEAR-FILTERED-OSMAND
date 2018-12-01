@@ -16,7 +16,7 @@ import net.osmand.data.PointDescription;
 import net.osmand.plus.GPXUtilities.WptPt;
 import net.osmand.plus.GeocodingLookupService.AddressLookupRequest;
 import net.osmand.plus.GeocodingLookupService.OnAddressLookupResult;
-import net.osmand.plus.IconsCache;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.MapMarkersHelper.MapMarker;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
@@ -24,12 +24,9 @@ import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.util.MapUtils;
 
-import java.text.SimpleDateFormat;
 import java.util.Collections;
-import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemViewHolder>
@@ -89,7 +86,7 @@ public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemVie
 	public void onBindViewHolder(final MapMarkerItemViewHolder holder, int pos) {
 		OsmandApplication app = mapActivity.getMyApplication();
 		boolean night = app.getDaynightHelper().isNightModeForMapControls();
-		IconsCache iconsCache = app.getIconsCache();
+		UiUtilities iconsCache = app.getUIUtilities();
 
 		boolean locationItem = showLocationItem && pos == 0;
 		boolean firstMarkerItem = showLocationItem ? pos == 1 : pos == 0;
@@ -203,13 +200,7 @@ public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemVie
 					descr = mapActivity.getString(R.string.shared_string_favorites);
 				}
 			} else {
-				Date date = new Date(marker.creationDate);
-				String month = new SimpleDateFormat("MMM", Locale.getDefault()).format(date);
-				if (month.length() > 1) {
-					month = Character.toUpperCase(month.charAt(0)) + month.substring(1);
-				}
-				String day = new SimpleDateFormat("d", Locale.getDefault()).format(date);
-				descr = month + " " + day;
+				descr = OsmAndFormatter.getFormattedDate(app, marker.creationDate);
 			}
 			holder.description.setText(descr);
 		}

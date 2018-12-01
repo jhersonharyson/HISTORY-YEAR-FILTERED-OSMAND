@@ -1,5 +1,6 @@
 package net.osmand.plus.mapmarkers;
 
+import android.annotation.SuppressLint;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
@@ -8,7 +9,6 @@ import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import net.osmand.AndroidUtils;
 import net.osmand.IndexConstants;
 import net.osmand.plus.GPXDatabase;
 import net.osmand.plus.GPXDatabase.GpxDataItem;
@@ -16,10 +16,9 @@ import net.osmand.plus.GPXUtilities;
 import net.osmand.plus.GPXUtilities.GPXFile;
 import net.osmand.plus.GPXUtilities.GPXTrackAnalysis;
 import net.osmand.plus.GpxSelectionHelper;
-import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
-import net.osmand.plus.MapMarkersHelper.MarkersSyncGroup;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
+import net.osmand.plus.mapmarkers.adapters.GroupsAdapter;
 import net.osmand.plus.mapmarkers.adapters.TracksGroupsAdapter;
 
 import java.io.File;
@@ -33,37 +32,12 @@ public class AddTracksGroupBottomSheetDialogFragment extends AddGroupBottomSheet
 
 	private ProcessGpxTask asyncProcessor;
 	private List<GpxDataItem> gpxList;
-	private GpxSelectionHelper gpxSelectionHelper;
-
-	@Override
-	public void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-		gpxSelectionHelper = getMyApplication().getSelectedGpxHelper();
-	}
 
 	@Override
 	public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
 		super.onViewCreated(view, savedInstanceState);
 		asyncProcessor = new ProcessGpxTask();
 		asyncProcessor.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-	}
-
-	@Override
-	public void createAdapter() {
-		gpxList = new ArrayList<>();
-		adapter = new TracksGroupsAdapter(getContext(), gpxList);
-	}
-
-	@Override
-	public MarkersSyncGroup createMapMarkersSyncGroup(int position) {
-		GpxDataItem gpxDataItem = gpxList.get(position - 1);
-		File gpx = gpxDataItem.getFile();
-		SelectedGpxFile selectedGpxFile = gpxSelectionHelper.getSelectedFileByPath(gpx.getAbsolutePath());
-		if (selectedGpxFile == null) {
-			GPXFile res = GPXUtilities.loadGPXFile(getContext(), gpx);
-			gpxSelectionHelper.selectGpxFile(res, true, false, false);
-		}
-		return new MarkersSyncGroup(gpx.getAbsolutePath(), AndroidUtils.trimExtension(gpx.getName()), MarkersSyncGroup.GPX_TYPE);
 	}
 
 	@Override
@@ -75,12 +49,45 @@ public class AddTracksGroupBottomSheetDialogFragment extends AddGroupBottomSheet
 		}
 	}
 
+	@Override
+	public GroupsAdapter createAdapter() {
+		gpxList = new ArrayList<>();
+		return new TracksGroupsAdapter(getContext(), gpxList);
+	}
+
+	@Override
+	protected void onItemClick(int position) {
+		GpxDataItem dataItem = gpxList.get(position - 1);
+		if (dataItem.getAnalysis().wptCategoryNames != null && dataItem.getAnalysis().wptCategoryNames.size() > 1) {
+			Bundle args = new Bundle();
+			args.putString(SelectWptCategoriesBottomSheetDialogFragment.GPX_FILE_PATH_KEY, dataItem.getFile().getAbsolutePath());
+
+			SelectWptCategoriesBottomSheetDialogFragment fragment = new SelectWptCategoriesBottomSheetDialogFragment();
+			fragment.setArguments(args);
+			fragment.setUsedOnMap(false);
+			fragment.show(getParentFragment().getChildFragmentManager(), SelectWptCategoriesBottomSheetDialogFragment.TAG);
+		} else {
+			OsmandApplication app = getMyApplication();
+			if (app != null) {
+				GpxSelectionHelper selectionHelper = app.getSelectedGpxHelper();
+				File gpx = dataItem.getFile();
+				if (selectionHelper.getSelectedFileByPath(gpx.getAbsolutePath()) == null) {
+					GPXFile res = GPXUtilities.loadGPXFile(app, gpx);
+					selectionHelper.selectGpxFile(res, true, false, false, false, false);
+				}
+				app.getMapMarkersHelper().addOrEnableGpxGroup(gpx);
+			}
+		}
+		dismiss();
+	}
+
+	@SuppressLint("StaticFieldLeak")
 	public class ProcessGpxTask extends AsyncTask<Void, GpxDataItem, Void> {
 
 		private OsmandApplication app = getMyApplication();
 		private Map<File, GpxDataItem> processedDataFiles = new HashMap<>();
 		private GPXDatabase db = app.getGpxDatabase();
-		private ProgressBar progressBar = (ProgressBar) mainView.findViewById(R.id.progress_bar);;
+		private ProgressBar progressBar = (ProgressBar) mainView.findViewById(R.id.progress_bar);
 		private RecyclerView recyclerView = (RecyclerView) mainView.findViewById(R.id.groups_recycler_view);
 		private TextView lookingForTracksText = (TextView) mainView.findViewById(R.id.looking_for_tracks_text);
 
@@ -124,7 +131,9 @@ public class AddTracksGroupBottomSheetDialogFragment extends AddGroupBottomSheet
 					processGPXFolder(gpxFile, sub);
 				} else if (gpxFile.isFile() && gpxFile.getName().toLowerCase().endsWith(".gpx")) {
 					GpxDataItem item = processedDataFiles.get(gpxFile);
-					if (item == null || item.getFileLastModifiedTime() != gpxFile.lastModified()) {
+					if (item == null
+							|| item.getFileLastModifiedTime() != gpxFile.lastModified()
+							|| item.getAnalysis().wptCategoryNames == null) {
 						GPXFile f = GPXUtilities.loadGPXFile(app, gpxFile);
 						GPXTrackAnalysis analysis = f.getAnalysis(gpxFile.lastModified());
 						if (item == null) {
@@ -152,6 +161,7 @@ public class AddTracksGroupBottomSheetDialogFragment extends AddGroupBottomSheet
 			progressBar.setVisibility(View.GONE);
 			lookingForTracksText.setVisibility(View.GONE);
 			recyclerView.setVisibility(View.VISIBLE);
+			setupHeightAndBackground(getView());
 		}
 	}
 }

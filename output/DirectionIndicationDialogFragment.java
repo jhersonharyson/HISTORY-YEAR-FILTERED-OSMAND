@@ -5,6 +5,7 @@ import android.content.res.ColorStateList;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
@@ -64,6 +65,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 
 		Toolbar toolbar = (Toolbar) mainView.findViewById(R.id.toolbar);
 		toolbar.setNavigationIcon(getIconsCache().getIcon(R.drawable.ic_arrow_back));
+		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View view) {
@@ -191,6 +193,15 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 			}
 		});
 
+		final CompoundButton keepPassedToggle = (CompoundButton) mainView.findViewById(R.id.keep_passed_switch);
+		keepPassedToggle.setChecked(settings.KEEP_PASSED_MARKERS_ON_MAP.get());
+		mainView.findViewById(R.id.keep_passed_row).setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				updateChecked(settings.KEEP_PASSED_MARKERS_ON_MAP, keepPassedToggle);
+			}
+		});
+
 		return mainView;
 	}
 
@@ -222,37 +233,41 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 	}
 
 	private void updateHelpImage() {
-		OsmandSettings settings = getSettings();
-		int count = settings.DISPLAYED_MARKERS_WIDGETS_COUNT.get();
-		LinkedList<Drawable> imgList = new LinkedList<>();
-		imgList.add(getDeviceImg());
-		if (settings.SHOW_LINES_TO_FIRST_MARKERS.get()) {
-			imgList.add(getGuideLineOneImg());
-			if (count == 2) {
-				imgList.add(getGuideLineTwoImg());
-			}
-		}
-		if (settings.SHOW_ARROWS_TO_FIRST_MARKERS.get()) {
-			imgList.add(getArrowOneImg());
-			if (count == 2) {
-				imgList.add(getArrowTwoImg());
-			}
-		}
-		if (settings.MARKERS_DISTANCE_INDICATION_ENABLED.get()) {
-			if (settings.MAP_MARKERS_MODE.get().isWidgets()) {
-				imgList.add(getWidget1Img());
+		if (Build.VERSION.SDK_INT >= 18) {
+			OsmandSettings settings = getSettings();
+			int count = settings.DISPLAYED_MARKERS_WIDGETS_COUNT.get();
+			LinkedList<Drawable> imgList = new LinkedList<>();
+			imgList.add(getDeviceImg());
+			if (settings.SHOW_LINES_TO_FIRST_MARKERS.get()) {
+				imgList.add(getGuideLineOneImg());
 				if (count == 2) {
-					imgList.add(getWidget2Img());
-				}
-			} else {
-				imgList.add(getTopBar1Img());
-				if (count == 2) {
-					imgList.add(getTopBar2Img());
+					imgList.add(getGuideLineTwoImg());
 				}
 			}
+			if (settings.SHOW_ARROWS_TO_FIRST_MARKERS.get()) {
+				imgList.add(getArrowOneImg());
+				if (count == 2) {
+					imgList.add(getArrowTwoImg());
+				}
+			}
+			if (settings.MARKERS_DISTANCE_INDICATION_ENABLED.get()) {
+				if (settings.MAP_MARKERS_MODE.get().isWidgets()) {
+					imgList.add(getWidget1Img());
+					if (count == 2) {
+						imgList.add(getWidget2Img());
+					}
+				} else {
+					imgList.add(getTopBar1Img());
+					if (count == 2) {
+						imgList.add(getTopBar2Img());
+					}
+				}
+			}
+			((ImageView) mainView.findViewById(R.id.action_bar_image))
+					.setImageDrawable(new LayerDrawable(imgList.toArray(new Drawable[imgList.size()])));
+		} else {
+			mainView.findViewById(R.id.action_bar_image_container).setVisibility(View.GONE);
 		}
-		((ImageView) mainView.findViewById(R.id.action_bar_image))
-				.setImageDrawable(new LayerDrawable(imgList.toArray(new Drawable[imgList.size()])));
 	}
 
 	private Drawable getTopBar2Img() {

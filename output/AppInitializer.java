@@ -9,6 +9,9 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.os.Build;
 import android.support.v7.app.AlertDialog;
 
 import net.osmand.IProgress;
@@ -24,10 +27,12 @@ import net.osmand.plus.activities.DayNightHelper;
 import net.osmand.plus.activities.LocalIndexHelper;
 import net.osmand.plus.activities.LocalIndexInfo;
 import net.osmand.plus.activities.SavingTrackHelper;
+import net.osmand.plus.base.MapViewTrackingUtilities;
 import net.osmand.plus.download.DownloadActivity;
 import net.osmand.plus.download.ui.AbstractLoadLocalIndexTask;
 import net.osmand.plus.helpers.AvoidSpecificRoads;
 import net.osmand.plus.helpers.WaypointHelper;
+import net.osmand.plus.inapp.InAppPurchaseHelper;
 import net.osmand.plus.liveupdates.LiveUpdatesHelper;
 import net.osmand.plus.mapmarkers.MapMarkersDbHelper;
 import net.osmand.plus.monitoring.LiveMonitoringHelper;
@@ -42,11 +47,15 @@ import net.osmand.plus.search.QuickSearchHelper;
 import net.osmand.plus.views.corenative.NativeCoreContext;
 import net.osmand.plus.voice.CommandPlayer;
 import net.osmand.plus.voice.CommandPlayerException;
+import net.osmand.plus.voice.JSMediaCommandPlayerImpl;
+import net.osmand.plus.voice.JSTTSCommandPlayerImpl;
 import net.osmand.plus.voice.MediaCommandPlayerImpl;
 import net.osmand.plus.voice.TTSCommandPlayerImpl;
+import net.osmand.plus.wikivoyage.data.TravelDbHelper;
 import net.osmand.render.RenderingRulesStorage;
 import net.osmand.router.RoutingConfiguration;
 import net.osmand.util.Algorithms;
+import net.osmand.util.OpeningHoursParser;
 
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -57,6 +66,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 import btools.routingapp.BRouterServiceConnection;
@@ -76,6 +86,8 @@ public class AppInitializer implements IProgress {
 	public static final int VERSION_2_2 = 22;
 	// 23 - 2.3
 	public static final int VERSION_2_3 = 23;
+	// 32 - 3.2
+	public static final int VERSION_3_2 = 32;
 
 
 	public static final boolean TIPS_AND_TRICKS = false;
@@ -87,7 +99,7 @@ public class AppInitializer implements IProgress {
 	private static final String VERSION_INSTALLED = "VERSION_INSTALLED"; //$NON-NLS-1$
 	private static final String EXCEPTION_FILE_SIZE = "EXCEPTION_FS"; //$NON-NLS-1$
 
-	public static final String LATEST_CHANGES_URL = "https://osmand.net/blog?id=osmand-2-8-released";
+	public static final String LATEST_CHANGES_URL = "http://osmand.net/blog?id=osmand-3-0-released";
 //	public static final String LATEST_CHANGES_URL = null; // not enough to read
 	public static final int APP_EXIT_CODE = 4;
 	public static final String APP_EXIT_KEY = "APP_EXIT_KEY";
@@ -136,14 +148,14 @@ public class AppInitializer implements IProgress {
 	}
 
 
-	@SuppressLint("CommitPrefEdits")
+	@SuppressLint({"CommitPrefEdits", "ApplySharedPref"})
 	public void initVariables() {
 		if(initSettings) {
 			return;
 		}
 		startPrefs = app.getSharedPreferences(
 				getLocalClassName(app.getAppCustomization().getMapActivity().getName()),
-				Context.MODE_WORLD_WRITEABLE);
+				Context.MODE_PRIVATE);
 		if(!startPrefs.contains(NUMBER_OF_STARTS)) {
 			startPrefs.edit().putInt(NUMBER_OF_STARTS, 1).commit();
 		} else {
@@ -156,7 +168,7 @@ public class AppInitializer implements IProgress {
 			firstTime = true;
 			startPrefs.edit().putBoolean(FIRST_TIME_APP_RUN, true).commit();
 			startPrefs.edit().putString(VERSION_INSTALLED, Version.getFullVersion(app)).commit();
-			startPrefs.edit().putInt(VERSION_INSTALLED_NUMBER, VERSION_2_3).commit();
+			startPrefs.edit().putInt(VERSION_INSTALLED_NUMBER, VERSION_3_2).commit();
 		} else if (!Version.getFullVersion(app).equals(startPrefs.getString(VERSION_INSTALLED, ""))) {
 			prevAppVersion = startPrefs.getInt(VERSION_INSTALLED_NUMBER, 0);
 			if(prevAppVersion < VERSION_2_2) {
@@ -167,10 +179,15 @@ public class AppInitializer implements IProgress {
 			}
 			if(prevAppVersion < VERSION_2_3) {
 				startPrefs.edit().putInt(VERSION_INSTALLED_NUMBER, VERSION_2_3).commit();
+			} else if (prevAppVersion < VERSION_3_2) {
+				app.getSettings().BILLING_PURCHASE_TOKENS_SENT.set("");
+				startPrefs.edit().putInt(VERSION_INSTALLED_NUMBER, VERSION_3_2).commit();
 			}
 			startPrefs.edit().putString(VERSION_INSTALLED, Version.getFullVersion(app)).commit();
 			appVersionChanged = true;
 		}
+		app.getSettings().SHOW_TRAVEL_UPDATE_CARD.set(true);
+		app.getSettings().SHOW_TRAVEL_NEEDED_MAPS_CARD.set(true);
 		initSettings = true;
 	}
 
@@ -234,18 +251,18 @@ public class AppInitializer implements IProgress {
 
 	public boolean checkPreviousRunsForExceptions(Activity activity, boolean writeFileSize) {
 		initVariables();
-		long size = activity.getPreferences(Context.MODE_WORLD_READABLE).getLong(EXCEPTION_FILE_SIZE, 0);
+		long size = activity.getPreferences(Context.MODE_PRIVATE).getLong(EXCEPTION_FILE_SIZE, 0);
 		final File file = app.getAppPath(OsmandApplication.EXCEPTION_PATH);
 		if (file.exists() && file.length() > 0) {
 			if (size != file.length() && !firstTime) {
 				if (writeFileSize) {
-					activity.getPreferences(Context.MODE_WORLD_WRITEABLE).edit().putLong(EXCEPTION_FILE_SIZE, file.length()).commit();
+					activity.getPreferences(Context.MODE_PRIVATE).edit().putLong(EXCEPTION_FILE_SIZE, file.length()).commit();
 				}
 				return true;
 			}
 		} else {
 			if (size > 0) {
-				activity.getPreferences(Context.MODE_WORLD_WRITEABLE).edit().putLong(EXCEPTION_FILE_SIZE, 0).commit();
+				activity.getPreferences(Context.MODE_PRIVATE).edit().putLong(EXCEPTION_FILE_SIZE, 0).commit();
 			}
 		}
 		return false;
@@ -255,7 +272,7 @@ public class AppInitializer implements IProgress {
 	public void checkVectorIndexesDownloaded(final Activity ctx) {
 		OsmandApplication app = (OsmandApplication)ctx.getApplication();
 		MapRenderRepositories maps = app.getResourceManager().getRenderer();
-		SharedPreferences pref = ctx.getPreferences(Context.MODE_WORLD_WRITEABLE);
+		SharedPreferences pref = ctx.getPreferences(Context.MODE_PRIVATE);
 		boolean check = pref.getBoolean(VECTOR_INDEXES_CHECK, true);
 		// do not show each time
 		if (check && new Random().nextInt() % 5 == 1) {
@@ -278,7 +295,7 @@ public class AppInitializer implements IProgress {
 			builder.setNeutralButton(R.string.shared_string_no_thanks, new DialogInterface.OnClickListener() {
 				@Override
 				public void onClick(DialogInterface dialog, int which) {
-					ctx.getPreferences(Context.MODE_WORLD_WRITEABLE).edit().putBoolean(VECTOR_INDEXES_CHECK, false).commit();
+					ctx.getPreferences(Context.MODE_PRIVATE).edit().putBoolean(VECTOR_INDEXES_CHECK, false).commit();
 				}
 			});
 			builder.setNegativeButton(R.string.first_time_continue, null);
@@ -305,20 +322,34 @@ public class AppInitializer implements IProgress {
 		}
 	}
 
+	Resources getLocalizedResources(String loc) {
+		if(Build.VERSION.SDK_INT < 17) {
+			return null;
+		}
+		Locale desiredLocale = new Locale(loc);
+		Configuration conf = app.getResources().getConfiguration();
+		conf = new Configuration(conf);
+		conf.setLocale(desiredLocale);
+		Context localizedContext = app.createConfigurationContext(conf);
+		return localizedContext.getResources();
+	}
 
 	private void initPoiTypes() {
-		if(app.getAppPath("poi_types.xml").exists()) {
-			app.poiTypes.init(app.getAppPath("poi_types.xml").getAbsolutePath());
+		if (app.getAppPath(IndexConstants.SETTINGS_DIR + "poi_types.xml").exists()) {
+			app.poiTypes.init(app.getAppPath(IndexConstants.SETTINGS_DIR + "poi_types.xml").getAbsolutePath());
 		} else {
 			app.poiTypes.init();
 		}
-		app.poiTypes.setPoiTranslator(new MapPoiTypes.PoiTranslator() {
 
+		final Resources en = getLocalizedResources("en");
+
+		app.poiTypes.setPoiTranslator(new MapPoiTypes.PoiTranslator() {
 
 			@Override
 			public String getTranslation(AbstractPoiType type) {
-				if(type.getBaseLangType() != null) {
-					return getTranslation(type.getBaseLangType()) +  " (" + app.getLangTranslation(type.getLang()).toLowerCase() +")";
+				AbstractPoiType baseLangType = type.getBaseLangType();
+				if (baseLangType != null) {
+					return getTranslation(baseLangType) + " (" + app.getLangTranslation(type.getLang()).toLowerCase() + ")";
 				}
 				return getTranslation(type.getIconKeyName());
 			}
@@ -329,10 +360,81 @@ public class AppInitializer implements IProgress {
 					Field f = R.string.class.getField("poi_" + keyName);
 					if (f != null) {
 						Integer in = (Integer) f.get(null);
-						return app.getString(in);
+						String val = app.getString(in);
+						if(val != null) {
+							int ind = val.indexOf(';');
+							if (ind > 0) {
+								return val.substring(0, ind);
+							}
+						}
+						return val;
+					}
+				} catch (Throwable e) {
+					LOG.info("No translation: " + keyName);
+				}
+				return null;
+			}
+
+			@Override
+			public String getSynonyms(AbstractPoiType type) {
+				AbstractPoiType baseLangType = type.getBaseLangType();
+				if (baseLangType != null) {
+					return getSynonyms(baseLangType);
+				}
+				return getSynonyms(type.getIconKeyName());
+			}
+
+
+			@Override
+			public String getSynonyms(String keyName) {
+				try {
+					Field f = R.string.class.getField("poi_" + keyName);
+					if (f != null) {
+						Integer in = (Integer) f.get(null);
+						String val = app.getString(in);
+						if(val != null) {
+							int ind = val.indexOf(';');
+							if(ind > 0) {
+								return val.substring(ind + 1);
+							}
+							return "";
+						}
+						return val;
 					}
 				} catch (Exception e) {
-					LOG.debug("No translation for "+ keyName + " " + e.getMessage());
+				}
+				return "";
+			}
+
+			@Override
+			public String getEnTranslation(AbstractPoiType type) {
+				AbstractPoiType baseLangType = type.getBaseLangType();
+				if (baseLangType != null) {
+					return getEnTranslation(baseLangType) + " (" + app.getLangTranslation(type.getLang()).toLowerCase() + ")";
+				}
+				return getEnTranslation(type.getIconKeyName());
+			}
+
+			@Override
+			public String getEnTranslation(String keyName) {
+				if (en == null) {
+					return Algorithms.capitalizeFirstLetter(
+							keyName.replace('_', ' '));
+				}
+				try {
+					Field f = R.string.class.getField("poi_" + keyName);
+					if (f != null) {
+						Integer in = (Integer) f.get(null);
+						String val = en.getString(in);
+						if(val != null) {
+							int ind = val.indexOf(';');
+							if(ind > 0) {
+								return val.substring(0, ind);
+							}
+						}
+						return val;
+					}
+				} catch (Exception e) {
 				}
 				return null;
 			}
@@ -353,6 +455,7 @@ public class AppInitializer implements IProgress {
 			e.printStackTrace();
 		}
 		app.applyTheme(app);
+		app.inAppPurchaseHelper = startupInit(new InAppPurchaseHelper(app), InAppPurchaseHelper.class);
 		app.poiTypes = startupInit(MapPoiTypes.getDefaultNoInit(), MapPoiTypes.class);
 		app.routingHelper = startupInit(new RoutingHelper(app), RoutingHelper.class);
 		app.resourceManager = startupInit(new ResourceManager(app), ResourceManager.class);
@@ -378,8 +481,28 @@ public class AppInitializer implements IProgress {
 		app.mapMarkersDbHelper = startupInit(new MapMarkersDbHelper(app), MapMarkersDbHelper.class);
 		app.mapMarkersHelper = startupInit(new MapMarkersHelper(app), MapMarkersHelper.class);
 		app.searchUICore = startupInit(new QuickSearchHelper(app), QuickSearchHelper.class);
+		app.mapViewTrackingUtilities = startupInit(new MapViewTrackingUtilities(app), MapViewTrackingUtilities.class); 
+		app.travelDbHelper = new TravelDbHelper(app);
+		if (app.getSettings().SELECTED_TRAVEL_BOOK.get() != null) {
+			app.travelDbHelper.initTravelBooks();
+		}
+		app.travelDbHelper = startupInit(app.travelDbHelper, TravelDbHelper.class);
+		
+
+		initOpeningHoursParser();
 	}
 
+	private void initOpeningHoursParser() {
+		OpeningHoursParser.setAdditionalString("off", app.getString(R.string.day_off_label));
+		OpeningHoursParser.setAdditionalString("is_open", app.getString(R.string.poi_dialog_opening_hours));
+		OpeningHoursParser.setAdditionalString("is_open_24_7", app.getString(R.string.shared_string_is_open_24_7));
+		OpeningHoursParser.setAdditionalString("will_open_at", app.getString(R.string.will_open_at));
+		OpeningHoursParser.setAdditionalString("open_from", app.getString(R.string.open_from));
+		OpeningHoursParser.setAdditionalString("will_close_at", app.getString(R.string.will_close_at));
+		OpeningHoursParser.setAdditionalString("open_till", app.getString(R.string.open_till));
+		OpeningHoursParser.setAdditionalString("will_open_tomorrow_at", app.getString(R.string.will_open_tomorrow_at));
+		OpeningHoursParser.setAdditionalString("will_open_on", app.getString(R.string.will_open_on));
+	}
 
 	private void updateRegionVars() {
 		app.regions.setTranslator(new RegionTranslation() {
@@ -463,11 +586,14 @@ public class AppInitializer implements IProgress {
 					if (!voiceDir.exists()) {
 						throw new CommandPlayerException(ctx.getString(R.string.voice_data_unavailable));
 					}
-
-					if (MediaCommandPlayerImpl.isMyData(voiceDir)) {
-						return new MediaCommandPlayerImpl(osmandApplication, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
+					if (JSTTSCommandPlayerImpl.isMyData(voiceDir)) {
+						return new JSTTSCommandPlayerImpl(ctx, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
+					} else if (JSMediaCommandPlayerImpl.isMyData(voiceDir)) {
+						return new JSMediaCommandPlayerImpl(osmandApplication, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
 					} else if (TTSCommandPlayerImpl.isMyData(voiceDir)) {
 						return new TTSCommandPlayerImpl(ctx, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
+					} else if (MediaCommandPlayerImpl.isMyData((voiceDir))) {
+						return new MediaCommandPlayerImpl(osmandApplication, applicationMode, osmandApplication.getRoutingHelper().getVoiceRouter(), voiceProvider);
 					}
 					throw new CommandPlayerException(ctx.getString(R.string.voice_data_not_supported));
 				}
@@ -500,19 +626,23 @@ public class AppInitializer implements IProgress {
 	private void startApplicationBackground() {
 		try {
 			startBgTime = System.currentTimeMillis();
-			app.favorites.loadFavorites();
-			notifyEvent(InitEvents.FAVORITES_INITIALIZED);
+			app.getRendererRegistry().initRenderers(this);
+			notifyEvent(InitEvents.INIT_RENDERERS);
+			// native depends on renderers
+			initOpenGl();
+			notifyEvent(InitEvents.NATIVE_OPEN_GLINITIALIZED);
+
 			// init poi types before indexes and before POI
 			initPoiTypes();
 			notifyEvent(InitEvents.POI_TYPES_INITIALIZED);
 			app.resourceManager.reloadIndexesOnStart(this, warnings);
 
-			app.getRendererRegistry().initRenderers(this);
-			notifyEvent(InitEvents.INIT_RENDERERS);
 			// native depends on renderers
 			initNativeCore();
 			notifyEvent(InitEvents.NATIVE_INITIALIZED);
 
+			app.favorites.loadFavorites();
+			notifyEvent(InitEvents.FAVORITES_INITIALIZED);
 			app.poiFilters.reloadAllPoiFilters();
 			app.poiFilters.loadSelectedPoiFilters();
 			notifyEvent(InitEvents.POI_TYPES_INITIALIZED);
@@ -522,11 +652,13 @@ public class AppInitializer implements IProgress {
 			notifyEvent(InitEvents.LOAD_GPX_TRACKS);
 			saveGPXTracks();
 			notifyEvent(InitEvents.SAVE_GPX_TRACKS);
-			app.mapMarkersHelper.syncAllGroupsAsync();
 			// restore backuped favorites to normal file
 			restoreBackupForFavoritesFiles();
 			notifyEvent(InitEvents.RESTORE_BACKUPS);
+			app.mapMarkersHelper.syncAllGroupsAsync();
 			app.searchUICore.initSearchUICore();
+			app.avoidSpecificRoads.initRouteObjects();
+			
 			checkLiveUpdatesAlerts();
 			
 		} catch (RuntimeException e) {
@@ -607,8 +739,7 @@ public class AppInitializer implements IProgress {
 		}
 	}
 
-
-	private void initNativeCore() {
+	private void initOpenGl() {
 		if (!"qnx".equals(System.getProperty("os.name"))) {
 			OsmandSettings osmandSettings = app.getSettings();
 			if (osmandSettings.USE_OPENGL_RENDER.get()) {
@@ -626,6 +757,12 @@ public class AppInitializer implements IProgress {
 					warnings.add("Native OpenGL library is not supported. Please try again after exit");
 				}
 			}
+		}
+	}
+
+	private void initNativeCore() {
+		if (!"qnx".equals(System.getProperty("os.name"))) {
+			OsmandSettings osmandSettings = app.getSettings();
 			if (osmandSettings.NATIVE_RENDERING_FAILED.get()) {
 				osmandSettings.SAFE_MODE.set(true);
 				osmandSettings.NATIVE_RENDERING_FAILED.set(false);
@@ -769,6 +906,10 @@ public class AppInitializer implements IProgress {
 		}
 	}
 
+
+	@Override
+	public void setGeneralProgress(String genProgress) {
+	}
 
 	public void removeListener(AppInitializeListener listener) {
 		this.listeners.remove(listener);

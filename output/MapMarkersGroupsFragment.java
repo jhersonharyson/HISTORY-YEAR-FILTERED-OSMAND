@@ -1,5 +1,24 @@
 package net.osmand.plus.mapmarkers;
 
+import net.osmand.AndroidUtils;
+import net.osmand.Location;
+import net.osmand.data.Amenity;
+import net.osmand.data.FavouritePoint;
+import net.osmand.data.LatLon;
+import net.osmand.data.PointDescription;
+import net.osmand.plus.GPXUtilities.WptPt;
+import net.osmand.plus.MapMarkersHelper.MapMarker;
+import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
+import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
+import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.R;
+import net.osmand.plus.activities.MapActivity;
+import net.osmand.plus.mapmarkers.SelectionMarkersGroupBottomSheetDialogFragment.AddMarkersGroupFragmentListener;
+import net.osmand.plus.mapmarkers.adapters.MapMarkerItemViewHolder;
+import net.osmand.plus.mapmarkers.adapters.MapMarkersGroupsAdapter;
+import net.osmand.plus.widgets.EmptyStateRecyclerView;
+import net.osmand.util.MapUtils;
+
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -7,6 +26,7 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.design.widget.Snackbar;
@@ -20,43 +40,22 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.TextView;
-
-import net.osmand.Location;
-import net.osmand.data.Amenity;
-import net.osmand.data.FavouritePoint;
-import net.osmand.data.LatLon;
-import net.osmand.data.PointDescription;
-import net.osmand.plus.GPXUtilities.WptPt;
-import net.osmand.plus.MapMarkersHelper.MapMarker;
-import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
-import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
-import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.R;
-import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.base.MapViewTrackingUtilities;
-import net.osmand.plus.dashboard.DashLocationFragment;
-import net.osmand.plus.mapmarkers.SelectionMarkersGroupBottomSheetDialogFragment.AddMarkersGroupFragmentListener;
-import net.osmand.plus.mapmarkers.adapters.MapMarkerItemViewHolder;
-import net.osmand.plus.mapmarkers.adapters.MapMarkersGroupsAdapter;
-import net.osmand.plus.widgets.EmptyStateRecyclerView;
-import net.osmand.util.MapUtils;
 
 public class MapMarkersGroupsFragment extends Fragment implements OsmAndCompassListener, OsmAndLocationListener {
 
 	public static final String TAG = "MapMarkersGroupsFragment";
 
 	private MapMarkersGroupsAdapter adapter;
-	private Float heading;
-	private Location location;
-	private boolean locationUpdateStarted;
 	private Paint backgroundPaint = new Paint();
 	private Paint iconPaint = new Paint();
 	private Paint textPaint = new Paint();
 	private Snackbar snackbar;
-	private boolean compassUpdateAllowed = true;
 	private View mainView;
 	private String groupIdToOpen;
+	private Location location;
+	private Float heading;
+	private boolean locationUpdateStarted;
+	private boolean compassUpdateAllowed = true;
 
 	@Nullable
 	@Override
@@ -68,10 +67,6 @@ public class MapMarkersGroupsFragment extends Fragment implements OsmAndCompassL
 		Fragment selectionMarkersGroupFragment = getChildFragmentManager().findFragmentByTag(SelectionMarkersGroupBottomSheetDialogFragment.TAG);
 		if (selectionMarkersGroupFragment != null) {
 			((SelectionMarkersGroupBottomSheetDialogFragment) selectionMarkersGroupFragment).setListener(createAddMarkersGroupFragmentListener());
-		}
-		Fragment addGroupFragment = getChildFragmentManager().findFragmentByTag(AddGroupBottomSheetDialogFragment.TAG);
-		if (addGroupFragment != null) {
-			((AddGroupBottomSheetDialogFragment) addGroupFragment).setListener(createAddGroupListener());
 		}
 		Fragment historyMarkerMenuFragment = getChildFragmentManager().findFragmentByTag(HistoryMarkerMenuBottomSheetDialogFragment.TAG);
 		if (historyMarkerMenuFragment != null) {
@@ -210,9 +205,7 @@ public class MapMarkersGroupsFragment extends Fragment implements OsmAndCompassL
 									updateAdapter();
 								}
 							});
-					View snackBarView = snackbar.getView();
-					TextView tv = (TextView) snackBarView.findViewById(android.support.design.R.id.snackbar_action);
-					tv.setTextColor(ContextCompat.getColor(mapActivity, R.color.color_dialog_buttons_dark));
+					AndroidUtils.setSnackbarTextColor(snackbar, R.color.color_dialog_buttons_dark);
 					snackbar.show();
 				}
 			}
@@ -310,7 +303,11 @@ public class MapMarkersGroupsFragment extends Fragment implements OsmAndCompassL
 			}
 		});
 		ImageView emptyImageView = (ImageView) emptyView.findViewById(R.id.empty_state_image_view);
-		emptyImageView.setImageResource(night ? R.drawable.ic_empty_state_marker_group_night : R.drawable.ic_empty_state_marker_group_day);
+		if (Build.VERSION.SDK_INT >= 18) {
+			emptyImageView.setImageResource(night ? R.drawable.ic_empty_state_marker_group_night : R.drawable.ic_empty_state_marker_group_day);
+		} else {
+			emptyImageView.setVisibility(View.INVISIBLE);
+		}
 		recyclerView.setEmptyView(emptyView);
 		recyclerView.setAdapter(adapter);
 
@@ -373,49 +370,34 @@ public class MapMarkersGroupsFragment extends Fragment implements OsmAndCompassL
 	}
 
 	private void openAddGroupMenu(AddGroupBottomSheetDialogFragment fragment) {
-		fragment.setListener(createAddGroupListener());
 		fragment.setUsedOnMap(false);
 		fragment.setRetainInstance(true);
 		fragment.show(getChildFragmentManager(), AddGroupBottomSheetDialogFragment.TAG);
-	}
-
-	private AddGroupBottomSheetDialogFragment.AddGroupListener createAddGroupListener() {
-		return new AddGroupBottomSheetDialogFragment.AddGroupListener() {
-			@Override
-			public void onGroupAdded() {
-				updateAdapter();
-			}
-		};
 	}
 
 	private AddMarkersGroupFragmentListener createAddMarkersGroupFragmentListener() {
 		return new AddMarkersGroupFragmentListener() {
 			@Override
 			public void favouritesOnClick() {
-				AddFavouritesGroupBottomSheetDialogFragment fragment = new AddFavouritesGroupBottomSheetDialogFragment();
-				openAddGroupMenu(fragment);
+				openAddGroupMenu(new AddFavouritesGroupBottomSheetDialogFragment());
 			}
 
 			@Override
 			public void waypointsOnClick() {
-				AddTracksGroupBottomSheetDialogFragment fragment = new AddTracksGroupBottomSheetDialogFragment();
-				openAddGroupMenu(fragment);
+				openAddGroupMenu(new AddTracksGroupBottomSheetDialogFragment());
 			}
 		};
 	}
 
 	void updateAdapter() {
 		if (adapter != null) {
-			adapter.createDisplayGroups();
-			adapter.updateShowDirectionMarkers();
-			adapter.notifyDataSetChanged();
+			adapter.updateDisplayedData();
 		}
 	}
 
 	@Override
 	public void onResume() {
 		super.onResume();
-		adapter.setScreenOrientation(DashLocationFragment.getScreenOrientation(getActivity()));
 		startLocationUpdate();
 	}
 
@@ -499,12 +481,6 @@ public class MapMarkersGroupsFragment extends Fragment implements OsmAndCompassL
 					if (location == null) {
 						location = mapActivity.getMyApplication().getLocationProvider().getLastKnownLocation();
 					}
-					MapViewTrackingUtilities utilities = mapActivity.getMapViewTrackingUtilities();
-					boolean useCenter = !(utilities.isMapLinkedToLocation() && location != null);
-
-					adapter.setUseCenter(useCenter);
-					adapter.setLocation(useCenter ? mapActivity.getMapLocation() : new LatLon(location.getLatitude(), location.getLongitude()));
-					adapter.setHeading(useCenter ? -mapActivity.getMapRotate() : heading != null ? heading : 99);
 					adapter.notifyDataSetChanged();
 				}
 			});

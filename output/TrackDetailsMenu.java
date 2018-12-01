@@ -1,6 +1,8 @@
 package net.osmand.plus.mapcontextmenu.other;
 
+import android.content.Context;
 import android.graphics.Matrix;
+import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.PopupMenu;
 import android.view.MenuItem;
@@ -18,18 +20,19 @@ import com.github.mikephil.charting.listener.ChartTouchListener.ChartGesture;
 import com.github.mikephil.charting.listener.OnChartGestureListener;
 import com.github.mikephil.charting.listener.OnChartValueSelectedListener;
 
+import net.osmand.AndroidUtils;
 import net.osmand.data.LatLon;
 import net.osmand.data.QuadRect;
 import net.osmand.data.RotatedTileBox;
 import net.osmand.plus.GPXUtilities;
+import net.osmand.plus.GPXUtilities.GPXFile;
 import net.osmand.plus.GPXUtilities.GPXTrackAnalysis;
 import net.osmand.plus.GPXUtilities.TrkSegment;
 import net.osmand.plus.GPXUtilities.WptPt;
-import net.osmand.plus.GPXUtilities.GPXFile;
 import net.osmand.plus.GpxSelectionHelper.GpxDisplayItem;
-import net.osmand.plus.IconsCache;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.dialogs.DirectionsDialogs;
 import net.osmand.plus.helpers.AndroidUiHelper;
@@ -54,11 +57,13 @@ public class TrackDetailsMenu {
 	private TrkSegment segment;
 	private TrackChartPoints trackChartPoints;
 	private List<WptPt> xAxisPoints;
+	private int topMarginPx;
 
 	private static boolean VISIBLE;
 
-	public TrackDetailsMenu(MapActivity mapActivity) {
+	public TrackDetailsMenu(@NonNull MapActivity mapActivity) {
 		this.mapActivity = mapActivity;
+		topMarginPx = AndroidUtils.dpToPx(mapActivity, 48f);
 	}
 
 	public GpxDisplayItem getGpxItem() {
@@ -125,7 +130,7 @@ public class TrackDetailsMenu {
 		}
 	}
 
-	public WeakReference<TrackDetailsMenuFragment> findMenuFragment() {
+	private WeakReference<TrackDetailsMenuFragment> findMenuFragment() {
 		Fragment fragment = mapActivity.getSupportFragmentManager().findFragmentByTag(TrackDetailsMenuFragment.TAG);
 		if (fragment != null && !fragment.isDetached()) {
 			return new WeakReference<>((TrackDetailsMenuFragment) fragment);
@@ -269,33 +274,32 @@ public class TrackDetailsMenu {
 
 	private void fitTrackOnMap(LineChart chart, LatLon location, boolean forceFit) {
 		QuadRect rect = getRect(chart, chart.getLowestVisibleX(), chart.getHighestVisibleX());
-		if (rect != null) {
-			RotatedTileBox tb = mapActivity.getMapView().getCurrentRotatedTileBox().copy();
-			int tileBoxWidthPx = 0;
-			int tileBoxHeightPx = 0;
+		RotatedTileBox tb = mapActivity.getMapView().getCurrentRotatedTileBox().copy();
+		int tileBoxWidthPx = 0;
+		int tileBoxHeightPx = 0;
 
-			WeakReference<TrackDetailsMenuFragment> fragmentRef = findMenuFragment();
-			if (fragmentRef != null) {
-				TrackDetailsMenuFragment f = fragmentRef.get();
-				boolean portrait = AndroidUiHelper.isOrientationPortrait(mapActivity);
-				if (!portrait) {
-					tileBoxWidthPx = tb.getPixWidth() - f.getWidth();
-				} else {
-					tileBoxHeightPx = tb.getPixHeight() - f.getHeight();
-				}
+		WeakReference<TrackDetailsMenuFragment> fragmentRef = findMenuFragment();
+		if (fragmentRef != null) {
+			TrackDetailsMenuFragment f = fragmentRef.get();
+			boolean portrait = AndroidUiHelper.isOrientationPortrait(mapActivity);
+			if (!portrait) {
+				tileBoxWidthPx = tb.getPixWidth() - f.getWidth();
+			} else {
+				tileBoxHeightPx = tb.getPixHeight() - f.getHeight();
 			}
+		}
+		if (tileBoxHeightPx > 0) {
 			if (forceFit) {
 				mapActivity.getMapView().fitRectToMap(rect.left, rect.right, rect.top, rect.bottom,
-						tileBoxWidthPx, tileBoxHeightPx, 0);
+						tileBoxWidthPx, tileBoxHeightPx, topMarginPx);
 			} else if (location != null &&
-					!mapActivity.getMapView().getTileBox(tileBoxWidthPx, tileBoxHeightPx, 0).containsLatLon(location)) {
+					!mapActivity.getMapView().getTileBox(tileBoxWidthPx, tileBoxHeightPx, topMarginPx).containsLatLon(location)) {
 				boolean animating = mapActivity.getMapView().getAnimatedDraggingThread().isAnimating();
 				mapActivity.getMapView().fitLocationToMap(location.getLatitude(), location.getLongitude(),
-						mapActivity.getMapView().getZoom(), tileBoxWidthPx, tileBoxHeightPx, 0, !animating);
+						mapActivity.getMapView().getZoom(), tileBoxWidthPx, tileBoxHeightPx, topMarginPx, !animating);
 			} else {
 				mapActivity.refreshMap();
 			}
-
 		}
 	}
 
@@ -450,7 +454,7 @@ public class TrackDetailsMenu {
 		});
 
 		final OsmandApplication app = mapActivity.getMyApplication();
-		final IconsCache ic = app.getIconsCache();
+		final UiUtilities ic = app.getUIUtilities();
 
 		GpxUiHelper.setupGPXChart(app, chart, 4);
 
@@ -626,6 +630,11 @@ public class TrackDetailsMenu {
 		public void updateToolbar(MapInfoWidgetsFactory.TopToolbarView view) {
 			super.updateToolbar(view);
 			view.getShadowView().setVisibility(View.GONE);
+		}
+
+		@Override
+		public int getStatusBarColor(Context context, boolean night) {
+			return NO_COLOR;
 		}
 	}
 

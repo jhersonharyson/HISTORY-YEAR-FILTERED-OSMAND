@@ -10,7 +10,6 @@ import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
-import android.support.v4.content.FileProvider;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.view.ActionMode;
 import android.view.LayoutInflater;
@@ -27,6 +26,7 @@ import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import net.osmand.AndroidUtils;
 import net.osmand.PlatformUtil;
 import net.osmand.data.PointDescription;
 import net.osmand.plus.GPXUtilities;
@@ -99,12 +99,17 @@ public class NotesFragment extends OsmAndListFragment {
 		ViewStub emptyStub = (ViewStub) view.findViewById(R.id.empty_view_stub);
 		emptyStub.setLayoutResource(R.layout.empty_state_av_notes);
 		emptyView = emptyStub.inflate();
-		int icRes = getMyApplication().getSettings().isLightContent()
-				? R.drawable.ic_empty_state_av_notes_day : R.drawable.ic_empty_state_av_notes_night;
-		((ImageView) emptyView.findViewById(R.id.empty_state_image_view)).setImageResource(icRes);
 		emptyView.setBackgroundColor(getResources().getColor(getMyApplication().getSettings()
 				.isLightContent() ? R.color.ctx_menu_info_view_bg_light : R.color.ctx_menu_info_view_bg_dark));
+		ImageView emptyImageView = (ImageView) emptyView.findViewById(R.id.empty_state_image_view);
 
+		if (Build.VERSION.SDK_INT >= 18) {
+			int icRes = getMyApplication().getSettings().isLightContent()
+					? R.drawable.ic_empty_state_av_notes_day : R.drawable.ic_empty_state_av_notes_night;
+			emptyImageView.setImageResource(icRes);
+		} else {
+			emptyImageView.setVisibility(View.INVISIBLE);
+		}
 		return view;
 	}
 
@@ -458,7 +463,7 @@ public class NotesFragment extends OsmAndListFragment {
 		for (Recording rec : selected) {
 			File file = rec == SHARE_LOCATION_FILE ? generateGPXForRecordings(selected) : rec.getFile();
 			if (file != null) {
-				uris.add(FileProvider.getUriForFile(getContext(), getActivity().getPackageName() + ".fileprovider", file));
+				uris.add(AndroidUtils.getUriForFile(getMyApplication(), file));
 			}
 		}
 

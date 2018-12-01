@@ -1,5 +1,43 @@
 package net.osmand.plus.download.ui;
 
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+import net.osmand.AndroidUtils;
+import net.osmand.Collator;
+import net.osmand.IndexConstants;
+import net.osmand.OsmAndCollator;
+import net.osmand.map.ITileSource;
+import net.osmand.plus.ContextMenuAdapter;
+import net.osmand.plus.ContextMenuAdapter.ItemClickListener;
+import net.osmand.plus.ContextMenuItem;
+import net.osmand.plus.UiUtilities;
+import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.OsmandPlugin;
+import net.osmand.plus.R;
+import net.osmand.plus.activities.LocalIndexHelper;
+import net.osmand.plus.activities.LocalIndexHelper.LocalIndexType;
+import net.osmand.plus.activities.LocalIndexInfo;
+import net.osmand.plus.activities.OsmandBaseExpandableListAdapter;
+import net.osmand.plus.base.OsmandExpandableListFragment;
+import net.osmand.plus.dialogs.DirectionsDialogs;
+import net.osmand.plus.download.DownloadActivity;
+import net.osmand.plus.download.DownloadIndexesThread.DownloadEvents;
+import net.osmand.plus.download.IndexItem;
+import net.osmand.plus.helpers.FileNameTranslationHelper;
+import net.osmand.plus.inapp.InAppPurchaseHelper;
+import net.osmand.plus.resources.IncrementalChangesManager;
+import net.osmand.util.Algorithms;
 import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.res.Resources;
@@ -7,6 +45,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.view.MenuItemCompat;
 import android.support.v7.app.ActionBar;
@@ -35,43 +74,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import net.osmand.AndroidUtils;
-import net.osmand.IndexConstants;
-import net.osmand.map.ITileSource;
-import net.osmand.plus.ContextMenuAdapter;
-import net.osmand.plus.ContextMenuAdapter.ItemClickListener;
-import net.osmand.plus.ContextMenuItem;
-import net.osmand.plus.IconsCache;
-import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.R;
-import net.osmand.plus.activities.LocalIndexHelper;
-import net.osmand.plus.activities.LocalIndexHelper.LocalIndexType;
-import net.osmand.plus.activities.LocalIndexInfo;
-import net.osmand.plus.activities.OsmandBaseExpandableListAdapter;
-import net.osmand.plus.base.OsmandExpandableListFragment;
-import net.osmand.plus.dialogs.DirectionsDialogs;
-import net.osmand.plus.download.DownloadActivity;
-import net.osmand.plus.download.DownloadIndexesThread.DownloadEvents;
-import net.osmand.plus.download.IndexItem;
-import net.osmand.plus.helpers.FileNameTranslationHelper;
-import net.osmand.plus.resources.IncrementalChangesManager;
-import net.osmand.util.Algorithms;
-
-import java.io.File;
-import java.text.Collator;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
-
 
 public class LocalIndexesFragment extends OsmandExpandableListFragment implements DownloadEvents {
 	public static final Pattern ILLEGAL_FILE_NAME_CHARACTERS = Pattern.compile("[?:\"*|/\\<>]");
@@ -88,7 +90,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 	private ActionMode actionMode;
 
 	@Override
-	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+	public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		View view = inflater.inflate(R.layout.local_index, container, false);
 
 		getDownloadActivity().setSupportProgressBarIndeterminateVisibility(false);
@@ -183,7 +185,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 			}
 		};
 		if (info.getType() == LocalIndexType.MAP_DATA || info.getType() == LocalIndexType.SRTM_DATA ||
-				info.getType() == LocalIndexType.WIKI_DATA) {
+				info.getType() == LocalIndexType.WIKI_DATA ) {
 			if (!info.isBackupedData()) {
 				adapter.addItem(new ContextMenuItem.ItemBuilder()
 						.setTitleId(R.string.local_index_mi_backup, getContext())
@@ -444,6 +446,8 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 					parent = getMyApplication().getAppPath(IndexConstants.SRTM_INDEX_DIR);
 				} else if (i.getOriginalType() == LocalIndexType.WIKI_DATA) {
 					parent = getMyApplication().getAppPath(IndexConstants.WIKI_INDEX_DIR);
+				} else if (i.getOriginalType() == LocalIndexType.TRAVEL_DATA) {
+					parent = getMyApplication().getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR);
 				} else if (i.getOriginalType() == LocalIndexType.TTS_VOICE_DATA) {
 					parent = getMyApplication().getAppPath(IndexConstants.VOICE_INDEX_DIR);
 				} else if (i.getOriginalType() == LocalIndexType.VOICE_DATA) {
@@ -466,7 +470,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 					if (operation == DELETE_OPERATION) {
 						File f = new File(info.getPathToData());
 						successfull = Algorithms.removeAllFiles(f);
-						if (getMyApplication().getSettings().LIVE_UPDATES_PURCHASED.get()) {
+						if (InAppPurchaseHelper.isSubscribedToLiveUpdates(getMyApplication())) {
 							String fileNameWithoutExtension =
 									Algorithms.getFileNameWithoutExtension(f);
 							IncrementalChangesManager changesManager =
@@ -591,7 +595,9 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 	@Override
 	public void onDestroy() {
 		super.onDestroy();
-		asyncLoader.cancel(true);
+		if (asyncLoader != null && asyncLoader.getStatus() == AsyncTask.Status.RUNNING) {
+			asyncLoader.cancel(true);
+		}
 	}
 
 
@@ -625,7 +631,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 			}
 		};
 		optionsMenuAdapter.addItem(new ContextMenuItem.ItemBuilder()
-				.setTitleId(R.string.local_index_mi_reload, getContext())
+				.setTitleId(R.string.shared_string_refresh, getContext())
 				.setIcon(R.drawable.ic_action_refresh_dark)
 				.setListener(listener)
 				.createItem());
@@ -780,7 +786,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 	}
 
 	public void localOptionsMenu(final int itemId) {
-		if (itemId == R.string.local_index_mi_reload) {
+		if (itemId == R.string.shared_string_refresh) {
 			getDownloadActivity().reloadLocalIndexes();
 		} else if (itemId == R.string.shared_string_delete) {
 			openSelectionMode(itemId, R.drawable.ic_action_delete_dark,
@@ -847,7 +853,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 		}
 
 		public void sortData() {
-			final Collator cl = Collator.getInstance();
+			final Collator cl = OsmAndCollator.primaryCollator();
 			for (List<LocalIndexInfo> i : data.values()) {
 				Collections.sort(i, new Comparator<LocalIndexInfo>() {
 					@Override
@@ -980,7 +986,8 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 
 
 		private String getNameToDisplay(LocalIndexInfo child) {
-			return FileNameTranslationHelper.getFileName(ctx,
+			return child.getType() == LocalIndexType.VOICE_DATA ? FileNameTranslationHelper.getVoiceName(ctx, child.getFileName()) :
+					FileNameTranslationHelper.getFileName(ctx,
 					ctx.getMyApplication().getResourceManager().getOsmandRegions(),
 					child.getFileName());
 		}
@@ -1094,7 +1101,7 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 
 			public void bindLocalIndexInfo(final LocalIndexInfo child) {
 
-				options.setImageDrawable(ctx.getMyApplication().getIconsCache()
+				options.setImageDrawable(ctx.getMyApplication().getUIUtilities()
 						.getThemedIcon(R.drawable.ic_overflow_menu_white));
 				options.setContentDescription(ctx.getString(R.string.shared_string_more));
 				options.setOnClickListener(new View.OnClickListener() {
@@ -1171,14 +1178,14 @@ public class LocalIndexesFragment extends OsmandExpandableListFragment implement
 			}
 
 			private Drawable getContentIcon(DownloadActivity context, int resourceId, int colorId) {
-				return context.getMyApplication().getIconsCache().getIcon(resourceId, colorId);
+				return context.getMyApplication().getUIUtilities().getIcon(resourceId, colorId);
 			}
 		}
 
 	}
 
 	private void openPopUpMenu(View v, final LocalIndexInfo info) {
-		IconsCache iconsCache = getMyApplication().getIconsCache();
+		UiUtilities iconsCache = getMyApplication().getUIUtilities();
 		final PopupMenu optionsMenu = new PopupMenu(getActivity(), v);
 		DirectionsDialogs.setupPopUpMenuIcon(optionsMenu);
 		final boolean restore = info.isBackupedData();

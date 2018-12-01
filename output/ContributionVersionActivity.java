@@ -14,10 +14,10 @@ import android.widget.ArrayAdapter;
 import android.widget.Filterable;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import net.osmand.AndroidUtils;
 import net.osmand.osm.io.NetworkUtils;
 import net.osmand.plus.R;
+import net.osmand.plus.Version;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
@@ -41,8 +41,8 @@ public class ContributionVersionActivity extends OsmandListActivity {
 	private static final int INSTALL_BUILD = 2;
 	private static final int ACTIVITY_TO_INSTALL = 23;
 	
-	private static final String URL_TO_RETRIEVE_BUILDS = "http://download.osmand.net/builds.php";
-	private static final String URL_GET_BUILD = "http://download.osmand.net/";
+	private static final String URL_TO_RETRIEVE_BUILDS = "https://osmand.net/builds";
+	private static final String URL_GET_BUILD = "https://osmand.net/";
 	
 	private ProgressDialog progressDlg;
 	private Date currentInstalledDate;
@@ -110,8 +110,9 @@ public class ContributionVersionActivity extends OsmandListActivity {
 		} else if(operationId == INSTALL_BUILD){
 			if(currentSelectedBuild != null){
 				Intent intent = new Intent(Intent.ACTION_VIEW);
+				intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); 
 	            intent.setDataAndType(Uri.fromFile(pathToDownload), "application/vnd.android.package-archive");
-	            startActivityForResult(intent, ACTIVITY_TO_INSTALL);
+				startActivityForResult(intent, ACTIVITY_TO_INSTALL);
 	            updateInstalledApp(false, currentSelectedBuild.date);
 			}
 		}
@@ -158,7 +159,9 @@ public class ContributionVersionActivity extends OsmandListActivity {
 							}
 						}
 						OsmAndBuild build = new OsmAndBuild(path, size, d, tag);
-						downloadedBuilds.add(build);
+						if(!Version.isFreeVersion(getMyApplication()) || path.contains("default")) {
+							downloadedBuilds.add(build);
+						}
 					}
 				}
 			}

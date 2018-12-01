@@ -13,7 +13,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.CompoundButton;
-
 import net.osmand.AndroidUtils;
 import net.osmand.map.ITileSource;
 import net.osmand.map.TileSourceManager;
@@ -40,6 +39,7 @@ import java.text.MessageFormat;
 import java.util.List;
 
 import static android.content.Intent.ACTION_VIEW;
+import static net.osmand.plus.OsmAndCustomizationConstants.MAPILLARY;
 
 public class MapillaryPlugin extends OsmandPlugin {
 	public static final String ID = "osmand.mapillary";
@@ -180,6 +180,7 @@ public class MapillaryPlugin extends OsmandPlugin {
 			settings.SHOW_MAPILLARY.set(false);
 		}
 		adapter.addItem(new ContextMenuItem.ItemBuilder()
+				.setId(MAPILLARY)
 				.setTitleId(R.string.mapillary, mapActivity)
 				.setSelected(settings.SHOW_MAPILLARY.get())
 				.setColor(settings.SHOW_MAPILLARY.get() ? R.color.osmand_orange : ContextMenuItem.INVALID_ID)
@@ -230,14 +231,18 @@ public class MapillaryPlugin extends OsmandPlugin {
 		boolean success = false;
 		OsmandApplication app = (OsmandApplication) activity.getApplication();
 		if (isPackageInstalled(MAPILLARY_PACKAGE_ID, app)) {
-			if (imageKey != null) {
-				Intent intent = new Intent(ACTION_VIEW, Uri.parse(MessageFormat.format("mapillary://mapillary/photo/{0}?image_key={0}", imageKey)));
-				intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-				app.startActivity(intent);
-			} else {
-				Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("mapillary://mapillary/capture"));
-				intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-				app.startActivity(intent);
+			try {
+				if (imageKey != null) {
+					Intent intent = new Intent(ACTION_VIEW, Uri.parse(MessageFormat.format("mapillary://mapillary/photo/{0}?image_key={0}", imageKey)));
+					intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+					app.startActivity(intent);
+				} else {
+					Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("mapillary://mapillary/capture"));
+					intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+					app.startActivity(intent);
+				}
+			} catch (ActivityNotFoundException e) {
+				new MapillaryInstallDialogFragment().show(activity.getSupportFragmentManager(), MapillaryInstallDialogFragment.TAG);
 			}
 			success = true;
 		} else {
@@ -274,7 +279,7 @@ public class MapillaryPlugin extends OsmandPlugin {
 		private boolean showWidget = true;
 
 		@Override
-		public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+		public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 			if (savedInstanceState != null) {
 				showWidget = savedInstanceState.getBoolean(KEY_SHOW_WIDGET, true);
 			}

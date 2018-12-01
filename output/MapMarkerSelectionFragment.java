@@ -30,15 +30,17 @@ import java.util.List;
 public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 	public static final String TAG = "MapMarkerSelectionFragment";
 	private static final String TARGET_KEY = "target_key";
+	private static final String INTERMEDIATE_KEY = "intermediate_key";
 
 	private LatLon loc;
 	private Float heading;
 	private boolean useCenter;
 	private boolean nightMode;
-	private int screenOrientation;
 	private boolean target;
+	private boolean intermediate;
 
 	private OnMarkerSelectListener onClickListener;
+	private int screenOrientation;
 
 	@Nullable
 	@Override
@@ -52,6 +54,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 		}
 		if (bundle != null) {
 			target = bundle.getBoolean(TARGET_KEY);
+			intermediate = bundle.getBoolean(INTERMEDIATE_KEY);
 		}
 
 		MapActivity mapActivity = getMapActivity();
@@ -60,18 +63,16 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 			MapRouteInfoMenu routeInfoMenu = mapActivity.getMapLayers().getMapControlsLayer().getMapRouteInfoMenu();
 			onClickListener = routeInfoMenu.getOnMarkerSelectListener();
 
-			screenOrientation = DashLocationFragment.getScreenOrientation(mapActivity);
+			screenOrientation = app.getUIUtilities().getScreenOrientation();
 
 			MapViewTrackingUtilities trackingUtils = mapActivity.getMapViewTrackingUtilities();
 			if (trackingUtils != null) {
 				Float head = trackingUtils.getHeading();
 				float mapRotation = mapActivity.getMapRotate();
 				LatLon mw = mapActivity.getMapLocation();
-				Location l = trackingUtils.getMyLocation();
-				boolean mapLinked = trackingUtils.isMapLinkedToLocation() && l != null;
-				LatLon myLoc = l == null ? null : new LatLon(l.getLatitude(), l.getLongitude());
+				boolean mapLinked = trackingUtils.isMapLinkedToLocation();
 				useCenter = !mapLinked;
-				loc = (useCenter ? mw : myLoc);
+				loc = mw;
 				if (useCenter) {
 					heading = -mapRotation;
 				} else {
@@ -83,7 +84,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 
 		View view = inflater.inflate(R.layout.map_marker_selection_fragment, container, false);
 		ImageButton closeButton = (ImageButton) view.findViewById(R.id.closeButton);
-		closeButton.setImageDrawable(getMyApplication().getIconsCache().getIcon(R.drawable.ic_action_mode_back));
+		closeButton.setImageDrawable(getMyApplication().getUIUtilities().getIcon(R.drawable.ic_action_mode_back));
 		closeButton.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -104,7 +105,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 			@Override
 			public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
 				if (onClickListener != null) {
-					onClickListener.onSelect(position, target);
+					onClickListener.onSelect(position, target, intermediate);
 				}
 				dismiss();
 			}
@@ -116,6 +117,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 	public void onSaveInstanceState(Bundle outState) {
 		super.onSaveInstanceState(outState);
 		outState.putBoolean(TARGET_KEY, target);
+		outState.putBoolean(INTERMEDIATE_KEY, intermediate);
 	}
 
 	private class MapMarkersListAdapter extends ArrayAdapter<MapMarker> {
@@ -131,7 +133,7 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 				convertView = getMapActivity().getLayoutInflater().inflate(R.layout.map_marker_item, null);
 			}
 			MapMarkerDialogHelper.updateMapMarkerInfo(getContext(), convertView, loc, heading,
-					useCenter, nightMode, screenOrientation, false, null, marker, true);
+					useCenter, nightMode, screenOrientation, marker);
 			final View remove = convertView.findViewById(R.id.info_close);
 			remove.setVisibility(View.GONE);
 			AndroidUtils.setListItemBackground(getMapActivity(), convertView, nightMode);
@@ -140,10 +142,11 @@ public class MapMarkerSelectionFragment extends BaseOsmAndDialogFragment {
 		}
 	}
 
-	public static MapMarkerSelectionFragment newInstance(boolean target) {
+	public static MapMarkerSelectionFragment newInstance(boolean target, boolean intermediate) {
 		MapMarkerSelectionFragment fragment = new MapMarkerSelectionFragment();
 		Bundle args = new Bundle();
 		args.putBoolean(TARGET_KEY, target);
+		args.putBoolean(INTERMEDIATE_KEY, intermediate);
 		fragment.setArguments(args);
 		return fragment;
 	}

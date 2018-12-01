@@ -3,24 +3,24 @@ package net.osmand.plus.mapcontextmenu.editors;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
-import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.app.DialogFragment;
+import android.support.v4.app.FragmentActivity;
 import android.support.v7.widget.Toolbar;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import net.osmand.AndroidUtils;
@@ -28,7 +28,6 @@ import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.base.BaseOsmAndFragment;
-import net.osmand.plus.helpers.AndroidUiHelper;
 import net.osmand.plus.widgets.AutoCompleteTextViewEx;
 import net.osmand.util.Algorithms;
 
@@ -40,18 +39,19 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 
 	@TargetApi(Build.VERSION_CODES.HONEYCOMB)
 	@Override
-	public View onCreateView(LayoutInflater inflater, ViewGroup container,
+	public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
 							 Bundle savedInstanceState) {
 
 		view = inflater.inflate(R.layout.point_editor_fragment, container, false);
-		AndroidUtils.addStatusBarPadding21v(getActivity(), view);
 
-		getEditor().updateLandscapePortrait();
+		getEditor().updateLandscapePortrait(requireActivity());
 		getEditor().updateNightMode();
 
 		Toolbar toolbar = (Toolbar) view.findViewById(R.id.toolbar);
 		toolbar.setTitle(getToolbarTitle());
-		toolbar.setNavigationIcon(getMyApplication().getIconsCache().getIcon(R.drawable.ic_arrow_back));
+
+		OsmandApplication app = requireMyApplication();
+		toolbar.setNavigationIcon(app.getUIUtilities().getIcon(R.drawable.ic_arrow_back));
 		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setTitleTextColor(getResources().getColor(getResIdFromAttribute(getMapActivity(), R.attr.pstsTextColor)));
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
@@ -135,36 +135,6 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 			descriptionEdit.setText(getDescriptionInitValue());
 		}
 
-		if (Build.VERSION.SDK_INT >= 11) {
-			view.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-				@Override
-				public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
-					if (descriptionEdit.isFocused()) {
-						ScrollView scrollView = (ScrollView) view.findViewById(R.id.editor_scroll_view);
-						scrollView.scrollTo(0, bottom);
-					}
-					if (Build.VERSION.SDK_INT >= 21 && AndroidUiHelper.isOrientationPortrait(getActivity())) {
-						Rect rect = new Rect();
-						getActivity().getWindow().getDecorView().getWindowVisibleDisplayFrame(rect);
-						int heightDiff = getResources().getDisplayMetrics().heightPixels - rect.bottom;
-						view.findViewById(R.id.buttons_container).setPadding(0, 0, 0, heightDiff);
-					}
-				}
-			});
-		} else {
-			ViewTreeObserver vto = view.getViewTreeObserver();
-			vto.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-
-				@Override
-				public void onGlobalLayout() {
-					if (descriptionEdit.isFocused()) {
-						ScrollView scrollView = (ScrollView) view.findViewById(R.id.editor_scroll_view);
-						scrollView.scrollTo(0, view.getBottom());
-					}
-				}
-			});
-		}
-
 		ImageView nameImage = (ImageView) view.findViewById(R.id.name_image);
 		nameImage.setImageDrawable(getNameIcon());
 		ImageView categoryImage = (ImageView) view.findViewById(R.id.category_image);
@@ -173,7 +143,7 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 		ImageView descriptionImage = (ImageView) view.findViewById(R.id.description_image);
 		descriptionImage.setImageDrawable(getRowIcon(R.drawable.ic_action_note_dark));
 
-		if (getMyApplication().accessibilityEnabled()) {
+		if (app.accessibilityEnabled()) {
 			nameCaption.setFocusable(true);
 			categoryCaption.setFocusable(true);
 			nameEdit.setHint(R.string.access_hint_enter_name);
@@ -182,6 +152,10 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 		}
 
 		return view;
+	}
+
+	protected EditText getNameEdit() {
+		return nameEdit;
 	}
 
 	protected DialogFragment createSelectCategoryDialog() {
@@ -195,7 +169,10 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	@Override
 	public void onStart() {
 		super.onStart();
-		getMapActivity().getContextMenu().setBaseFragmentVisibility(false);
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			mapActivity.getContextMenu().setBaseFragmentVisibility(false);
+		}
 	}
 
 	@Override
@@ -212,7 +189,10 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	public void onStop() {
 		super.onStop();
 		hideKeyboard();
-		getMapActivity().getContextMenu().setBaseFragmentVisibility(true);
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			mapActivity.getContextMenu().setBaseFragmentVisibility(true);
+		}
 	}
 
 	@Override
@@ -228,14 +208,22 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 		return R.color.status_bar_light;
 	}
 
+	@Override
+	protected boolean isFullScreenAllowed() {
+		return false;
+	}
+
 	private void hideKeyboard() {
-		InputMethodManager inputMethodManager = (InputMethodManager) getActivity().getSystemService(Activity.INPUT_METHOD_SERVICE);
-		if (inputMethodManager != null) {
-			View currentFocus = getActivity().getCurrentFocus();
-			if (currentFocus != null) {
-				IBinder windowToken = currentFocus.getWindowToken();
-				if (windowToken != null) {
-					inputMethodManager.hideSoftInputFromWindow(windowToken, 0);
+		FragmentActivity activity = getActivity();
+		if (activity != null) {
+			InputMethodManager inputMethodManager = (InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE);
+			if (inputMethodManager != null) {
+				View currentFocus = activity.getCurrentFocus();
+				if (currentFocus != null) {
+					IBinder windowToken = currentFocus.getWindowToken();
+					if (windowToken != null) {
+						inputMethodManager.hideSoftInputFromWindow(windowToken, 0);
+					}
 				}
 			}
 		}
@@ -250,7 +238,9 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	}
 
 	protected abstract boolean wasSaved();
+
 	protected abstract void save(boolean needDismiss);
+
 	protected abstract void delete(boolean needDismiss);
 
 	static int getResIdFromAttribute(final Context ctx, final int attr) {
@@ -262,9 +252,10 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	}
 
 	public abstract PointEditor getEditor();
+
 	public abstract String getToolbarTitle();
 
-	public void setCategory(String name) {
+	public void setCategory(String name, int color) {
 		AutoCompleteTextViewEx categoryEdit = (AutoCompleteTextViewEx) view.findViewById(R.id.category_edit);
 		String n = name.length() == 0 ? getDefaultCategoryName() : name;
 		categoryEdit.setText(n);
@@ -278,10 +269,13 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 		return getString(R.string.shared_string_none);
 	}
 
+	@Nullable
 	protected MapActivity getMapActivity() {
-		return (MapActivity)getActivity();
+		return (MapActivity) getActivity();
 	}
 
+	@Nullable
+	@Override
 	protected OsmandApplication getMyApplication() {
 		if (getActivity() == null) {
 			return null;
@@ -294,11 +288,14 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	}
 
 	public void dismiss(boolean includingMenu) {
-		if (includingMenu) {
-			getMapActivity().getSupportFragmentManager().popBackStack();
-			getMapActivity().getContextMenu().close();
-		} else {
-			getMapActivity().getSupportFragmentManager().popBackStack();
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			if (includingMenu) {
+				mapActivity.getSupportFragmentManager().popBackStack();
+				mapActivity.getContextMenu().close();
+			} else {
+				mapActivity.getSupportFragmentManager().popBackStack();
+			}
 		}
 	}
 
@@ -307,16 +304,22 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	public String getNameCaption() {
 		return getMapActivity().getResources().getString(R.string.shared_string_name);
 	}
+
 	public String getCategoryCaption() {
 		return getMapActivity().getResources().getString(R.string.favourites_edit_dialog_category);
 	}
 
 	public abstract String getNameInitValue();
+
 	public abstract String getCategoryInitValue();
+
 	public abstract String getDescriptionInitValue();
 
 	public abstract Drawable getNameIcon();
+
 	public abstract Drawable getCategoryIcon();
+
+	public abstract int getPointColor();
 
 	public String getNameTextValue() {
 		EditText nameEdit = (EditText) view.findViewById(R.id.name_edit);

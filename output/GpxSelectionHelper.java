@@ -6,7 +6,6 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
 
-import net.osmand.AndroidUtils;
 import net.osmand.IProgress;
 import net.osmand.data.LatLon;
 import net.osmand.plus.GPXDatabase.GpxDataItem;
@@ -16,7 +15,7 @@ import net.osmand.plus.GPXUtilities.Route;
 import net.osmand.plus.GPXUtilities.Track;
 import net.osmand.plus.GPXUtilities.TrkSegment;
 import net.osmand.plus.GPXUtilities.WptPt;
-import net.osmand.plus.MapMarkersHelper.MarkersSyncGroup;
+import net.osmand.plus.MapMarkersHelper.MapMarkersGroup;
 import net.osmand.plus.OsmandSettings.MetricsConstants;
 import net.osmand.plus.activities.SavingTrackHelper;
 import net.osmand.plus.helpers.GpxUiHelper;
@@ -38,6 +37,7 @@ public class GpxSelectionHelper {
 	private static final String CURRENT_TRACK = "currentTrack";
 	private static final String FILE = "file";
 	private static final String COLOR = "color";
+	private static final String SELECTED_BY_USER = "selected_by_user";
 	private OsmandApplication app;
 	@NonNull
 	private List<SelectedGpxFile> selectedGPXFiles = new java.util.ArrayList<>();
@@ -246,7 +246,10 @@ public class GpxSelectionHelper {
 		return dg;
 	}
 
-	private static void processGroupTrack(OsmandApplication app, GpxDisplayGroup group) {
+	private static void processGroupTrack(@NonNull OsmandApplication app, @NonNull GpxDisplayGroup group) {
+		if (group.track == null) {
+			return;
+		}
 		List<GpxDisplayItem> list = group.getModifiableList();
 		String timeSpanClr = Algorithms.colorToString(ContextCompat.getColor(app, R.color.gpx_time_span_color));
 		String speedClr = Algorithms.colorToString(ContextCompat.getColor(app, R.color.gpx_speed));
@@ -254,7 +257,6 @@ public class GpxSelectionHelper {
 		String descClr = Algorithms.colorToString(ContextCompat.getColor(app, R.color.gpx_altitude_desc));
 		String distanceClr = Algorithms.colorToString(ContextCompat.getColor(app, R.color.gpx_distance_color));
 		final float eleThreshold = 3;
-//		int t = 1;
 		for (TrkSegment r : group.track.segments) {
 			if (r.points.size() == 0) {
 				continue;
@@ -365,7 +367,8 @@ public class GpxSelectionHelper {
 	}
 
 	public SelectedGpxFile getSelectedFileByPath(String path) {
-		for (SelectedGpxFile s : selectedGPXFiles) {
+		List<SelectedGpxFile> newList = new ArrayList<>(selectedGPXFiles);
+		for (SelectedGpxFile s : newList) {
 			if (s.getGpxFile().path.equals(path)) {
 				return s;
 			}
@@ -409,7 +412,7 @@ public class GpxSelectionHelper {
 	public void setGpxFileToDisplay(GPXFile... gpxs) {
 		// special case for gpx current route
 		for (GPXFile gpx : gpxs) {
-			selectGpxFileImpl(gpx, true, false, true);
+			selectGpxFile(gpx, true, false);
 		}
 		saveCurrentSelections();
 	}
@@ -422,6 +425,7 @@ public class GpxSelectionHelper {
 				boolean save = false;
 				for (int i = 0; i < ar.length(); i++) {
 					JSONObject obj = ar.getJSONObject(i);
+					boolean selectedByUser = obj.optBoolean(SELECTED_BY_USER, true);
 					if (obj.has(FILE)) {
 						File fl = new File(obj.getString(FILE));
 						if (p != null) {
@@ -435,10 +439,12 @@ public class GpxSelectionHelper {
 						if (gpx.warning != null) {
 							save = true;
 						} else {
-							selectGpxFile(gpx, true, false);
+							selectGpxFile(gpx, true, false, true, selectedByUser, false);
 						}
 					} else if (obj.has(CURRENT_TRACK)) {
-						selectedGPXFiles.add(savingTrackHelper.getCurrentTrack());
+						SelectedGpxFile file = savingTrackHelper.getCurrentTrack();
+						file.selectedByUser = selectedByUser;
+						selectedGPXFiles.add(file);
 					}
 				}
 				processSplit();
@@ -466,6 +472,7 @@ public class GpxSelectionHelper {
 							obj.put(COLOR, Algorithms.colorToString(s.gpxFile.getColor(0)));
 						}
 					}
+					obj.put(SELECTED_BY_USER, s.selectedByUser);
 				} catch (JSONException e) {
 					e.printStackTrace();
 				}
@@ -475,13 +482,16 @@ public class GpxSelectionHelper {
 		app.getSettings().SELECTED_GPX.set(ar.toString());
 	}
 
-	private SelectedGpxFile selectGpxFileImpl(GPXFile gpx, boolean show, boolean notShowNavigationDialog, boolean syncGroup) {
+	private SelectedGpxFile selectGpxFileImpl(GPXFile gpx, boolean show, boolean notShowNavigationDialog, boolean syncGroup, boolean selectedByUser) {
 		boolean displayed;
 		SelectedGpxFile sf;
 		if (gpx != null && gpx.showCurrentTrack) {
 			sf = savingTrackHelper.getCurrentTrack();
 			sf.notShowNavigationDialog = notShowNavigationDialog;
 			displayed = selectedGPXFiles.contains(sf);
+			if (!displayed && show) {
+				sf.selectedByUser = selectedByUser;
+			}
 		} else {
 			assert gpx != null;
 			sf = getSelectedFileByPath(gpx.path);
@@ -490,6 +500,7 @@ public class GpxSelectionHelper {
 				sf = new SelectedGpxFile();
 				sf.setGpxFile(gpx);
 				sf.notShowNavigationDialog = notShowNavigationDialog;
+				sf.selectedByUser = selectedByUser;
 			}
 		}
 		if (displayed != show) {
@@ -500,68 +511,65 @@ public class GpxSelectionHelper {
 			}
 		}
 		if (syncGroup) {
-			syncGpx(gpx, true);
+			syncGpxWithMarkers(gpx);
 		}
 		return sf;
 	}
 
 	public SelectedGpxFile selectGpxFile(GPXFile gpx, boolean show, boolean notShowNavigationDialog) {
-		return selectGpxFile(gpx, show, notShowNavigationDialog, true);
+		return selectGpxFile(gpx, show, notShowNavigationDialog, true, true, true);
 	}
 
-	public SelectedGpxFile selectGpxFile(GPXFile gpx, boolean show, boolean notShowNavigationDialog, boolean syncGroup) {
-		SelectedGpxFile sf = selectGpxFileImpl(gpx, show, notShowNavigationDialog, syncGroup);
+	public SelectedGpxFile selectGpxFile(GPXFile gpx, boolean show, boolean notShowNavigationDialog, boolean syncGroup, boolean selectedByUser) {
+		SelectedGpxFile sf = selectGpxFileImpl(gpx, show, notShowNavigationDialog, syncGroup, selectedByUser);
 		saveCurrentSelections();
 		return sf;
 	}
 
+	public SelectedGpxFile selectGpxFile(GPXFile gpx, boolean show, boolean notShowNavigationDialog, boolean syncGroup, boolean selectedByUser, boolean canAddToMarkers) {
+		if (canAddToMarkers && show) {
+			GPXDatabase.GpxDataItem dataItem = app.getGpxDatabase().getItem(new File(gpx.path));
+			if (dataItem != null && dataItem.isShowAsMarkers()) {
+				app.getMapMarkersHelper().addOrEnableGroup(gpx);
+			}
+		}
+		return selectGpxFile(gpx, show, notShowNavigationDialog, syncGroup, selectedByUser);
+	}
+
 	public void clearPoints(GPXFile gpxFile) {
 		gpxFile.clearPoints();
-		syncGpx(gpxFile);
+		syncGpxWithMarkers(gpxFile);
 	}
 
 	public void addPoint(WptPt point, GPXFile gpxFile) {
 		gpxFile.addPoint(point);
-		syncGpx(gpxFile);
+		syncGpxWithMarkers(gpxFile);
 	}
 
 	public void addPoints(Collection<? extends WptPt> collection, GPXFile gpxFile) {
 		gpxFile.addPoints(collection);
-		syncGpx(gpxFile);
+		syncGpxWithMarkers(gpxFile);
 	}
 
 	public boolean removePoint(WptPt point, GPXFile gpxFile) {
 		boolean res = gpxFile.deleteWptPt(point);
-		syncGpx(gpxFile);
+		syncGpxWithMarkers(gpxFile);
 		return res;
 	}
 
-	private void syncGpx(GPXFile gpxFile) {
-		syncGpx(gpxFile, false);
-	}
-
-	private void syncGpx(GPXFile gpxFile, boolean createOrDeleteGroup) {
+	private void syncGpxWithMarkers(GPXFile gpxFile) {
 		File gpx = new File(gpxFile.path);
-		if (gpx.exists()) {
-			MapMarkersHelper mapMarkersHelper = app.getMapMarkersHelper();
-			MarkersSyncGroup syncGroup = new MarkersSyncGroup(gpx.getAbsolutePath(), AndroidUtils.trimExtension(gpx.getName()), MarkersSyncGroup.GPX_TYPE);
-			boolean enabled = true;
-			if (createOrDeleteGroup) {
-				boolean show = getSelectedFileByPath(gpx.getAbsolutePath()) != null;
-				enabled = mapMarkersHelper.isGroupSynced(gpx.getAbsolutePath());
-				if (show && !enabled) {
-					mapMarkersHelper.addMarkersSyncGroup(syncGroup);
-				} else if (!show && mapMarkersHelper.isGroupDisabled(gpx.getAbsolutePath())) {
-					mapMarkersHelper.removeMarkersSyncGroup(gpx.getAbsolutePath(), true);
-				}
-			}
-			mapMarkersHelper.syncGroupAsync(syncGroup, enabled);
+		MapMarkersHelper mapMarkersHelper = app.getMapMarkersHelper();
+		MapMarkersGroup group = mapMarkersHelper.getMarkersGroup(gpxFile);
+		if (group != null) {
+			mapMarkersHelper.runSynchronization(group);
 		}
 	}
 
 
 	public static class SelectedGpxFile {
 		public boolean notShowNavigationDialog = false;
+		public boolean selectedByUser = true;
 
 		private boolean showCurrentTrack;
 		private GPXFile gpxFile;
@@ -775,6 +783,10 @@ public class GpxSelectionHelper {
 
 		public int getColor() {
 			return color;
+		}
+
+		public void setColor(int color) {
+			this.color = color;
 		}
 	}
 

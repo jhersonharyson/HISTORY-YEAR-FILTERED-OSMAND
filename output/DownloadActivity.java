@@ -1,12 +1,11 @@
 package net.osmand.plus.download;
 
 import android.Manifest;
-import android.content.ActivityNotFoundException;
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.StatFs;
@@ -21,7 +20,6 @@ import android.support.v4.content.ContextCompat;
 import android.support.v4.view.ViewPager;
 import android.support.v4.widget.Space;
 import android.support.v7.app.AlertDialog;
-import android.support.v7.widget.AppCompatButton;
 import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
@@ -53,16 +51,17 @@ import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.TabActivity;
 import net.osmand.plus.base.BasicProgressAsyncTask;
 import net.osmand.plus.base.BottomSheetDialogFragment;
+import net.osmand.plus.chooseplan.ChoosePlanDialogFragment;
 import net.osmand.plus.download.DownloadIndexesThread.DownloadEvents;
 import net.osmand.plus.download.ui.ActiveDownloadsDialogFragment;
 import net.osmand.plus.download.ui.DownloadResourceGroupFragment;
-import net.osmand.plus.download.ui.FreeVersionDialogFragment;
 import net.osmand.plus.download.ui.LocalIndexesFragment;
+import net.osmand.plus.download.ui.SearchDialogFragment;
 import net.osmand.plus.download.ui.UpdatesIndexFragment;
 import net.osmand.plus.helpers.FileNameTranslationHelper;
-import net.osmand.plus.inapp.InAppHelper;
-import net.osmand.plus.inapp.InAppHelper.InAppListener;
-import net.osmand.plus.liveupdates.OsmLiveActivity;
+import net.osmand.plus.inapp.InAppPurchaseHelper;
+import net.osmand.plus.inapp.InAppPurchaseHelper.InAppPurchaseListener;
+import net.osmand.plus.inapp.InAppPurchaseHelper.InAppPurchaseTaskType;
 import net.osmand.plus.openseamapsplugin.NauticalMapsPlugin;
 import net.osmand.plus.srtmplugin.SRTMPlugin;
 import net.osmand.plus.views.controls.PagerSlidingTabStrip;
@@ -81,10 +80,10 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import static net.osmand.plus.OsmandApplication.SHOW_PLUS_VERSION_INAPP_PARAM;
+import static net.osmand.plus.download.ui.SearchDialogFragment.SHOW_WIKI_KEY;
 
 public class DownloadActivity extends AbstractDownloadActivity implements DownloadEvents,
-		OnRequestPermissionsResultCallback, InAppListener {
+		OnRequestPermissionsResultCallback {
 	private static final Log LOG = PlatformUtil.getLog(DownloadActivity.class);
 
 	public static final int UPDATES_TAB_NUMBER = 2;
@@ -104,6 +103,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	public static final String LOCAL_TAB = "local";
 	public static final String DOWNLOAD_TAB = "download";
 	public static final String UPDATES_TAB = "updates";
+	public static final String REGION_TO_SEARCH = "search_region";
 	public static final MessageFormat formatGb = new MessageFormat("{0, number,#.##} GB", Locale.US);
 	public static final MessageFormat formatMb = new MessageFormat("{0, number,##.#} MB", Locale.US);
 	public static final MessageFormat formatKb = new MessageFormat("{0, number,##.#} kB", Locale.US);
@@ -119,8 +119,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	private DownloadIndexesThread downloadThread;
 	protected WorldRegion downloadItem;
 	protected String downloadTargetFileName;
-
-	private InAppHelper inAppHelper;
 
 	private boolean srtmDisabled;
 	private boolean srtmNeedsInstallation;
@@ -194,79 +192,49 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 
 		visibleBanner = new BannerAndDownloadFreeVersion(findViewById(R.id.mainLayout), this, true);
 		if (shouldShowFreeVersionBanner(getMyApplication())) {
-			visibleBanner.setUpdatingPrices(true);
+			visibleBanner.updateFreeVersionBanner();
 		}
-
-		startInAppHelper();
 
 		final Intent intent = getIntent();
 		if (intent != null && intent.getExtras() != null) {
+			String region = getIntent().getStringExtra(REGION_TO_SEARCH);
+			if (region != null && !region.isEmpty()) {
+				showDialog(this, SearchDialogFragment.createInstance(region,
+						getIntent().getBooleanExtra(SHOW_WIKI_KEY, false)));
+			}
 			filter = intent.getExtras().getString(FILTER_KEY);
 			filterCat = intent.getExtras().getString(FILTER_CAT);
 			filterGroup = intent.getExtras().getString(FILTER_GROUP);
 		}
 	}
 
-	@Override
-	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		// Pass on the activity result to the helper for handling
-		if (inAppHelper == null || !inAppHelper.onActivityResultHandled(requestCode, resultCode, data)) {
-			// not handled, so handle it ourselves (here's where you'd
-			// perform any handling of activity results not related to in-app
-			// billing...
-			super.onActivityResult(requestCode, resultCode, data);
-		}
+	public boolean isInAppPurchaseAllowed() {
+		return true;
 	}
 
 	@Override
-	public void onDestroy() {
-		super.onDestroy();
-		stopInAppHelper();
+	public void onInAppPurchaseError(InAppPurchaseTaskType taskType, String error) {
+		visibleBanner.updateFreeVersionBanner();
 	}
 
-	public void startInAppHelper() {
-		stopInAppHelper();
-
-		if (Version.isGooglePlayEnabled(getMyApplication())) {
-			inAppHelper = new InAppHelper(getMyApplication(), true);
-			inAppHelper.addListener(this);
-			inAppHelper.start(false);
-		}
+	@Override
+	public void onInAppPurchaseGetItems() {
+		visibleBanner.updateFreeVersionBanner();
+		initAppStatusVariables();
 	}
 
-	public void stopInAppHelper() {
-		if (inAppHelper != null) {
-			inAppHelper.removeListener(this);
-			inAppHelper.stop();
-		}
+	@Override
+	public void onInAppPurchaseItemPurchased(String sku) {
+		visibleBanner.updateFreeVersionBanner();
+		initAppStatusVariables();
 	}
 
-	public void purchaseFullVersion() {
-		OsmandApplication app = getMyApplication();
-		if (Version.isFreeVersion(app)) {
-			if (app.getRemoteBoolean(SHOW_PLUS_VERSION_INAPP_PARAM, true)) {
-				if (inAppHelper != null) {
-					app.logEvent(this, "in_app_purchase_redirect");
-					inAppHelper.purchaseFullVersion(this);
-				}
-			} else {
-				app.logEvent(this, "paid_version_redirect");
-				Intent intent = new Intent(Intent.ACTION_VIEW,
-						Uri.parse(Version.getUrlWithUtmRef(app, "net.osmand.plus")));
-				try {
-					startActivity(intent);
-				} catch (ActivityNotFoundException e) {
-					LOG.error("ActivityNotFoundException", e);
-				}
-			}
-		}
+	@Override
+	public void showInAppPurchaseProgress(InAppPurchaseTaskType taskType) {
 	}
 
-	public void purchaseDepthContours() {
-		if (inAppHelper != null) {
-			getMyApplication().logEvent(this, "depth_contours_purchase_redirect");
-			inAppHelper.purchaseDepthContours(this);
-		}
+	@Override
+	public void dismissInAppPurchaseProgress(InAppPurchaseTaskType taskType) {
 	}
 
 	public DownloadIndexesThread getDownloadThread() {
@@ -286,7 +254,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	protected void onResume() {
 		super.onResume();
 		initAppStatusVariables();
-		getMyApplication().getAppCustomization().resumeActivity(DownloadActivity.class, this);
 		downloadThread.setUiActivity(this);
 		downloadInProgress();
 	}
@@ -315,7 +282,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	@Override
 	public void onPause() {
 		super.onPause();
-		getMyApplication().getAppCustomization().pauseActivity(DownloadActivity.class);
 		downloadThread.resetUiActivity(this);
 	}
 
@@ -363,59 +329,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			Fragment f = ref.get();
 			if (f instanceof DownloadEvents && f.isAdded()) {
 				((DownloadEvents) f).downloadHasFinished();
-			}
-		}
-	}
-
-	@Override
-	public void onError(String error) {
-		visibleBanner.setUpdatingPrices(false);
-		for (WeakReference<Fragment> ref : fragSet) {
-			Fragment f = ref.get();
-			if (f instanceof InAppListener && f.isAdded()) {
-				((InAppListener) f).onError(error);
-			}
-		}
-	}
-
-	@Override
-	public void onGetItems() {
-		visibleBanner.setUpdatingPrices(false);
-		for (WeakReference<Fragment> ref : fragSet) {
-			Fragment f = ref.get();
-			if (f instanceof InAppListener && f.isAdded()) {
-				((InAppListener) f).onGetItems();
-			}
-		}
-	}
-
-	@Override
-	public void onItemPurchased(String sku) {
-		visibleBanner.setUpdatingPrices(false);
-		for (WeakReference<Fragment> ref : fragSet) {
-			Fragment f = ref.get();
-			if (f instanceof InAppListener && f.isAdded()) {
-				((InAppListener) f).onItemPurchased(sku);
-			}
-		}
-	}
-
-	@Override
-	public void showProgress() {
-		for (WeakReference<Fragment> ref : fragSet) {
-			Fragment f = ref.get();
-			if (f instanceof InAppListener && f.isAdded()) {
-				((InAppListener) f).showProgress();
-			}
-		}
-	}
-
-	@Override
-	public void dismissProgress() {
-		for (WeakReference<Fragment> ref : fragSet) {
-			Fragment f = ref.get();
-			if (f instanceof InAppListener && f.isAdded()) {
-				((InAppListener) f).dismissProgress();
 			}
 		}
 	}
@@ -470,32 +383,20 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	}
 
 	public static boolean shouldShowFreeVersionBanner(OsmandApplication application) {
-		return (Version.isFreeVersion(application) && !application.getSettings().LIVE_UPDATES_PURCHASED.get()
-				&& !application.getSettings().FULL_VERSION_PURCHASED.get())
+		return !Version.isPaidVersion(application)
 				|| application.getSettings().SHOULD_SHOW_FREE_VERSION_BANNER.get();
 	}
 	
 	
-	public static class FreeVersionDialog {
+	public static class FreeVersionBanner {
 		private final View freeVersionBanner;
 		private final View freeVersionBannerTitle;
-		private boolean updatingPrices;
-		private final View priceInfoLayout;
 		private final TextView freeVersionDescriptionTextView;
 		private final TextView downloadsLeftTextView;
 		private final ProgressBar downloadsLeftProgressBar;
 		
-//		private final View laterButton;
-//		private final View buttonsLinearLayout;
-		
-		private final View fullVersionProgress;
-		private final AppCompatButton fullVersionButton;
-		private final View osmLiveProgress;
-		private final AppCompatButton osmLiveButton;
 		private DownloadActivity ctx;
-		private boolean dialog;
 
-		
 		private OnClickListener onCollapseListener = new OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -504,49 +405,30 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 					collapseBanner();
 				} else {
 					ctx.getMyApplication().logEvent(ctx, "click_free_dialog");
-					new FreeVersionDialogFragment().show(ctx.getSupportFragmentManager(), FreeVersionDialogFragment.TAG);
+					ChoosePlanDialogFragment.showFreeVersionInstance(ctx.getSupportFragmentManager());
 				}
 			}
 		};
 		
-		public FreeVersionDialog(View view, final DownloadActivity ctx, boolean dialog) {
+		public FreeVersionBanner(View view, final DownloadActivity ctx) {
 			this.ctx = ctx;
-			this.dialog = dialog;
 			freeVersionBanner = view.findViewById(R.id.freeVersionBanner);
 			downloadsLeftTextView = (TextView) freeVersionBanner.findViewById(R.id.downloadsLeftTextView);
 			downloadsLeftProgressBar = (ProgressBar) freeVersionBanner.findViewById(R.id.downloadsLeftProgressBar);
-			priceInfoLayout = freeVersionBanner.findViewById(R.id.priceInfoLayout);
 			freeVersionDescriptionTextView = (TextView) freeVersionBanner
 					.findViewById(R.id.freeVersionDescriptionTextView);
 			freeVersionBannerTitle = freeVersionBanner.findViewById(R.id.freeVersionBannerTitle);
-			// laterButton = freeVersionBanner.findViewById(R.id.laterButton);
-			// buttonsLinearLayout = freeVersionBanner.findViewById(R.id.buttonsLinearLayout);
-			
-			fullVersionProgress = freeVersionBanner.findViewById(R.id.fullVersionProgress);
-			fullVersionButton = (AppCompatButton) freeVersionBanner.findViewById(R.id.fullVersionButton);
-			osmLiveProgress = freeVersionBanner.findViewById(R.id.osmLiveProgress);
-			osmLiveButton = (AppCompatButton) freeVersionBanner.findViewById(R.id.osmLiveButton);
-		}
-
-		public void setUpdatingPrices(boolean updatingPrices) {
-			this.updatingPrices = updatingPrices;
-			updateFreeVersionBanner();
 		}
 
 		private void collapseBanner() {
 			freeVersionDescriptionTextView.setVisibility(View.GONE);
-			// buttonsLinearLayout.setVisibility(View.GONE);
-			priceInfoLayout.setVisibility(View.GONE);
 			freeVersionBannerTitle.setVisibility(View.VISIBLE);
 		}
 
 		public void expandBanner() {
 			freeVersionDescriptionTextView.setVisibility(View.VISIBLE);
-			// buttonsLinearLayout.setVisibility(View.VISIBLE);
-			priceInfoLayout.setVisibility(View.VISIBLE);
 			freeVersionBannerTitle.setVisibility(View.VISIBLE);
 		}
-
 
 		public void initFreeVersionBanner() {
 			if (!shouldShowFreeVersionBanner(ctx.getMyApplication())) {
@@ -557,33 +439,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			downloadsLeftProgressBar.setMax(DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS);
 			freeVersionDescriptionTextView.setText(ctx.getString(R.string.free_version_message,
 					DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS));
-			fullVersionButton.setOnClickListener(new OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					OsmandApplication app = ctx.getMyApplication();
-					if (app.getRemoteBoolean(SHOW_PLUS_VERSION_INAPP_PARAM, true)) {
-						app.logEvent(ctx, "in_app_purchase_redirect_from_banner");
-					} else {
-						app.logEvent(ctx, "paid_version_redirect_from_banner");
-					}
-					ctx.purchaseFullVersion();
-					DialogFragment f = (DialogFragment) ctx.getSupportFragmentManager()
-							.findFragmentByTag(FreeVersionDialogFragment.TAG);
-					if (f != null) {
-						f.dismiss();
-					}
-				}
-			});
-			osmLiveButton.setOnClickListener(new OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					ctx.getMyApplication().logEvent(ctx, "click_subscribe_live_osm");
-					Intent intent = new Intent(ctx, OsmLiveActivity.class);
-					intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-					intent.putExtra(OsmLiveActivity.OPEN_SUBSCRIPTION_INTENT_PARAM, true);
-					ctx.startActivity(intent);
-				}
-			});
 
 			LinearLayout marksLinearLayout = (LinearLayout) freeVersionBanner.findViewById(R.id.marksLinearLayout);
 			Space spaceView = new Space(ctx);
@@ -607,11 +462,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			}
 
 			updateFreeVersionBanner();
-			if(dialog) {
-				expandBanner();
-			} else {
-				collapseBanner();
-			}
+			collapseBanner();
 		}
 
 		public void updateFreeVersionBanner() {
@@ -628,28 +479,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			int downloadsLeft = DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS - mapsDownloaded;
 			downloadsLeft = Math.max(downloadsLeft, 0);
 			downloadsLeftTextView.setText(ctx.getString(R.string.downloads_left_template, downloadsLeft));
-			if(!dialog) {
-				freeVersionBanner.findViewById(R.id.bannerTopLayout).setOnClickListener(onCollapseListener);
-			}
-
-			if (InAppHelper.hasPrices(ctx.getMyApplication()) || !updatingPrices) {
-				if (!InAppHelper.hasPrices(ctx.getMyApplication())) {
-					fullVersionButton.setText(ctx.getString(R.string.get_for, ctx.getString(R.string.full_version_price)));
-					osmLiveButton.setText(ctx.getString(R.string.get_for_month, ctx.getString(R.string.osm_live_default_price)));
-				} else {
-					fullVersionButton.setText(ctx.getString(R.string.get_for, InAppHelper.getFullVersionPrice()));
-					osmLiveButton.setText(ctx.getString(R.string.get_for_month, InAppHelper.getLiveUpdatesPrice()));
-				}
-				fullVersionProgress.setVisibility(View.GONE);
-				fullVersionButton.setVisibility(View.VISIBLE);
-				osmLiveProgress.setVisibility(View.GONE);
-				osmLiveButton.setVisibility(View.VISIBLE);
-			} else {
-				fullVersionProgress.setVisibility(View.VISIBLE);
-				fullVersionButton.setVisibility(View.GONE);
-				osmLiveProgress.setVisibility(View.VISIBLE);
-				osmLiveButton.setVisibility(View.GONE);
-			}
+			freeVersionBanner.findViewById(R.id.bannerTopLayout).setOnClickListener(onCollapseListener);
 		}
 		
 		private void setMinimizedFreeVersionBanner(boolean minimize) {
@@ -666,7 +496,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			final Integer mapsDownloaded = settings.NUMBER_OF_FREE_DOWNLOADS.get() + activeTasks;
 			downloadsLeftProgressBar.setProgress(mapsDownloaded);
 		}
-
 	}
 
 	public static class BannerAndDownloadFreeVersion {
@@ -679,26 +508,24 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 		private final DownloadActivity ctx;
 		
 		private boolean showSpace;
-		private FreeVersionDialog freeVersionDialog;
+		private FreeVersionBanner freeVersionBanner;
 
 		public BannerAndDownloadFreeVersion(View view, final DownloadActivity ctx, boolean showSpace) {
 			this.ctx = ctx;
 			this.showSpace = showSpace;
-			freeVersionDialog = new FreeVersionDialog(view, ctx, false);
+			freeVersionBanner = new FreeVersionBanner(view, ctx);
 			
 			downloadProgressLayout = view.findViewById(R.id.downloadProgressLayout);
 			progressBar = (ProgressBar) view.findViewById(R.id.progressBar);
 			leftTextView = (TextView) view.findViewById(R.id.leftTextView);
 			rightTextView = (TextView) view.findViewById(R.id.rightTextView);
-			
 
-
-			freeVersionDialog.initFreeVersionBanner();
+			freeVersionBanner.initFreeVersionBanner();
 			updateBannerInProgress();
 		}
 
-		public void setUpdatingPrices(boolean updatingPrices) {
-			freeVersionDialog.setUpdatingPrices(updatingPrices);
+		public void updateFreeVersionBanner() {
+			freeVersionBanner.updateFreeVersionBanner();
 		}
 
 		public void updateBannerInProgress() {
@@ -713,13 +540,13 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 				} else {
 					downloadProgressLayout.setVisibility(View.VISIBLE);
 				}
-				freeVersionDialog.updateFreeVersionBanner();
+				freeVersionBanner.updateFreeVersionBanner();
 			} else {
 				boolean indeterminate = basicProgressAsyncTask.isIndeterminate();
 				String message = basicProgressAsyncTask.getDescription();
 				int percent = basicProgressAsyncTask.getProgressPercentage();
-				freeVersionDialog.setMinimizedFreeVersionBanner(true);
-				freeVersionDialog.updateAvailableDownloads();
+				freeVersionBanner.setMinimizedFreeVersionBanner(true);
+				freeVersionBanner.updateAvailableDownloads();
 				downloadProgressLayout.setVisibility(View.VISIBLE);
 				downloadProgressLayout.setOnClickListener(new OnClickListener() {
 					@Override
@@ -733,27 +560,14 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 					rightTextView.setText(null);
 				} else {
 					progressBar.setProgress(percent);
-//					final String format = ctx.getString(R.string.downloading_number_of_files);
 					leftTextView.setText(message);
 					rightTextView.setText(percent + "%");
 				}
 			}
 		}
-
-
-		public void hideDownloadProgressLayout() {
-			downloadProgressLayout.setVisibility(View.GONE);
-		}
-
-		public void showDownloadProgressLayout() {
-			downloadProgressLayout.setVisibility(View.VISIBLE);
-		}
-
-		
-
-		
 	}
 
+	@SuppressLint("StaticFieldLeak")
 	public void reloadLocalIndexes() {
 		AsyncTask<Void, String, List<String>> task = new AsyncTask<Void, String, List<String>>() {
 			@Override
@@ -887,7 +701,8 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	}
 
 	public void initAppStatusVariables() {
-		srtmDisabled = OsmandPlugin.getEnabledPlugin(SRTMPlugin.class) == null;
+		srtmDisabled = OsmandPlugin.getEnabledPlugin(SRTMPlugin.class) == null
+				&& !InAppPurchaseHelper.isSubscribedToLiveUpdates(getMyApplication());
 		nauticalPluginDisabled = OsmandPlugin.getEnabledPlugin(NauticalMapsPlugin.class) == null;
 		freeVersion = Version.isFreeVersion(getMyApplication());
 		OsmandPlugin srtmPlugin = OsmandPlugin.getPlugin(SRTMPlugin.class);
@@ -903,7 +718,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 
 		@Nullable
 		@Override
-		public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+		public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 			if (savedInstanceState != null) {
 				String itemFileName = savedInstanceState.getString(KEY_ASK_MAP_DOWNLOAD_ITEM_FILENAME);
 				if (itemFileName != null) {
@@ -986,7 +801,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 		private String regionName;
 
 		@Override
-		public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+		public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 			if (savedInstanceState != null) {
 				regionName = savedInstanceState.getString(KEY_GOTO_MAP_REGION_NAME);
 				regionName = regionName == null ? "" : regionName;

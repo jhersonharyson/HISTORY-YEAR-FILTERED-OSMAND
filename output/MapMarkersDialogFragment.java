@@ -18,18 +18,22 @@ import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
+import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import net.osmand.AndroidUtils;
+import net.osmand.Location;
+import net.osmand.data.LatLon;
 import net.osmand.plus.LockableViewPager;
 import net.osmand.plus.MapMarkersHelper;
+import net.osmand.plus.MapMarkersHelper.MapMarkersSortByDef;
+import net.osmand.plus.MapMarkersHelper.OnGroupSyncedListener;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
-import net.osmand.plus.OsmandSettings.MapMarkersOrderByMode;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.TrackActivity;
-import net.osmand.plus.mapmarkers.CoordinateInputDialogFragment.OnMapMarkersSavedListener;
+import net.osmand.plus.mapmarkers.CoordinateInputDialogFragment.OnPointsSavedListener;
 import net.osmand.plus.mapmarkers.DirectionIndicationDialogFragment.DirectionIndicationFragmentListener;
 import net.osmand.plus.mapmarkers.OptionsBottomSheetDialogFragment.MarkerOptionsFragmentListener;
 import net.osmand.plus.mapmarkers.OrderByBottomSheetDialogFragment.OrderByFragmentListener;
@@ -43,7 +47,7 @@ import java.util.List;
 import static net.osmand.plus.mapmarkers.OptionsBottomSheetDialogFragment.GROUPS_MARKERS_MENU;
 import static net.osmand.plus.mapmarkers.OptionsBottomSheetDialogFragment.HISTORY_MARKERS_MENU;
 
-public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragment {
+public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragment implements OnGroupSyncedListener {
 
 	public static final String TAG = "MapMarkersDialogFragment";
 
@@ -60,6 +64,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 	private Snackbar snackbar;
 	private LockableViewPager viewPager;
 	private BottomNavigationView bottomNav;
+	private ProgressBar progressBar;
 
 	private boolean lightTheme;
 	private String groupIdToOpen;
@@ -136,15 +141,14 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		}
 		Fragment coordinateInputDialog = fragmentManager.findFragmentByTag(CoordinateInputDialogFragment.TAG);
 		if (coordinateInputDialog != null) {
-			((CoordinateInputDialogFragment) coordinateInputDialog).setListener(createOnMapMarkersSavedListener());
+			((CoordinateInputDialogFragment) coordinateInputDialog).setListener(createOnPointsSavedListener());
 		}
 
 		View mainView = inflater.inflate(R.layout.fragment_map_markers_dialog, container);
 
-		setOrderByMode(getMyApplication().getSettings().MAP_MARKERS_ORDER_BY_MODE.get());
-
 		Toolbar toolbar = (Toolbar) mainView.findViewById(R.id.map_markers_toolbar);
-		toolbar.setNavigationIcon(getMyApplication().getIconsCache().getIcon(R.drawable.ic_arrow_back));
+		toolbar.setNavigationIcon(getMyApplication().getUIUtilities().getIcon(R.drawable.ic_arrow_back));
+		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View view) {
@@ -158,6 +162,8 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		final MapMarkersViewPagerAdapter adapter = new MapMarkersViewPagerAdapter(getChildFragmentManager());
 		viewPager.setAdapter(adapter);
 
+		progressBar = (ProgressBar) mainView.findViewById(R.id.progress_bar);
+
 		bottomNav = mainView.findViewById(R.id.map_markers_bottom_navigation);
 		BottomNavigationViewHelper.disableShiftMode(bottomNav);
 		if (!lightTheme) {
@@ -169,6 +175,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 			groupsFragment.startLocationUpdate();
 			groupsFragment.setGroupIdToOpen(groupIdToOpen);
 			viewPager.setCurrentItem(GROUPS_POSITION, false);
+			bottomNav.getMenu().findItem(R.id.action_groups).setChecked(true);
 		}
 		bottomNav.setOnNavigationItemSelectedListener(new BottomNavigationView.OnNavigationItemSelectedListener() {
 			@Override
@@ -203,6 +210,35 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		});
 
 		return mainView;
+	}
+
+	@Override
+	public void onResume() {
+		super.onResume();
+		getMyApplication().getMapMarkersHelper().addSyncListener(this);
+	}
+
+	@Override
+	public void onPause() {
+		super.onPause();
+		getMyApplication().getMapMarkersHelper().removeSyncListener(this);
+	}
+
+	@Override
+	public void onSyncStarted() {
+		switchProgressbarVisibility(true);
+	}
+
+	@Override
+	public void onSyncDone() {
+		updateAdapters();
+		switchProgressbarVisibility(false);
+	}
+
+	private void switchProgressbarVisibility(boolean visible) {
+		if (progressBar != null) {
+			progressBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+		}
 	}
 
 	private void setupLocationUpdate(boolean activeFr, boolean groupsFr) {
@@ -257,10 +293,10 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		return (OsmandApplication) getActivity().getApplication();
 	}
 
-	private OnMapMarkersSavedListener createOnMapMarkersSavedListener() {
-		return new OnMapMarkersSavedListener() {
+	private OnPointsSavedListener createOnPointsSavedListener() {
+		return new OnPointsSavedListener() {
 			@Override
-			public void onMapMarkersSaved() {
+			public void onPointsSaved() {
 				updateAdapters();
 			}
 		};
@@ -356,7 +392,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 				if (mapActivity != null) {
 					CoordinateInputDialogFragment fragment = new CoordinateInputDialogFragment();
 					fragment.setRetainInstance(true);
-					fragment.setListener(createOnMapMarkersSavedListener());
+					fragment.setListener(createOnPointsSavedListener());
 					fragment.show(getChildFragmentManager(), CoordinateInputDialogFragment.TAG);
 				}
 			}
@@ -409,9 +445,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 									}
 								}
 							});
-					View snackBarView = snackbar.getView();
-					TextView tv = (TextView) snackBarView.findViewById(android.support.design.R.id.snackbar_action);
-					tv.setTextColor(ContextCompat.getColor(mapActivity, R.color.color_dialog_buttons_dark));
+					AndroidUtils.setSnackbarTextColor(snackbar, R.color.color_dialog_buttons_dark);
 					snackbar.show();
 				}
 			}
@@ -456,9 +490,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 								startActivity(intent);
 							}
 						});
-				View snackBarView = snackbar.getView();
-				TextView tv = (TextView) snackBarView.findViewById(android.support.design.R.id.snackbar_action);
-				tv.setTextColor(ContextCompat.getColor(mapActivity, R.color.color_dialog_buttons_dark));
+				AndroidUtils.setSnackbarTextColor(snackbar, R.color.color_dialog_buttons_dark);
 				snackbar.show();
 			}
 		};
@@ -467,17 +499,18 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 	private OrderByFragmentListener createOrderByFragmentListener() {
 		return new OrderByFragmentListener() {
 			@Override
-			public void onMapMarkersOrderByModeChanged(MapMarkersOrderByMode orderByMode) {
-				setOrderByMode(orderByMode);
+			public void onMapMarkersOrderByModeChanged(@MapMarkersSortByDef int sortByMode) {
+				OsmandApplication app = getMyApplication();
+				MapActivity mapActivity = getMapActivity();
+
+				Location location = app.getLocationProvider().getLastKnownLocation();
+				boolean useCenter = !(mapActivity.getMapViewTrackingUtilities().isMapLinkedToLocation() && location != null);
+				LatLon loc = useCenter ? mapActivity.getMapLocation() : new LatLon(location.getLatitude(), location.getLongitude());
+
+				app.getMapMarkersHelper().sortMarkers(sortByMode, loc);
+				activeFragment.updateAdapter();
 			}
 		};
-	}
-
-	private void setOrderByMode(MapMarkersOrderByMode orderByMode) {
-		if (orderByMode != MapMarkersOrderByMode.CUSTOM) {
-			getMyApplication().getMapMarkersHelper().orderMarkers(orderByMode);
-			activeFragment.updateAdapter();
-		}
 	}
 
 	private void hideSnackbar() {

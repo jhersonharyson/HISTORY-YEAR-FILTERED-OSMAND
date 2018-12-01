@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.design.widget.Snackbar;
@@ -19,8 +20,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.TextView;
 
+import net.osmand.AndroidUtils;
 import net.osmand.plus.MapMarkersHelper;
 import net.osmand.plus.MapMarkersHelper.MapMarker;
 import net.osmand.plus.OsmandApplication;
@@ -169,9 +170,7 @@ public class MapMarkersHistoryFragment extends Fragment implements MapMarkersHel
 									}
 								}
 							});
-					View snackBarView = snackbar.getView();
-					TextView tv = (TextView) snackBarView.findViewById(android.support.design.R.id.snackbar_action);
-					tv.setTextColor(ContextCompat.getColor(mapActivity, R.color.color_dialog_buttons_dark));
+					AndroidUtils.setSnackbarTextColor(snackbar, R.color.color_dialog_buttons_dark);
 					snackbar.show();
 				}
 			}
@@ -205,7 +204,11 @@ public class MapMarkersHistoryFragment extends Fragment implements MapMarkersHel
 		});
 		final View emptyView = mainView.findViewById(R.id.empty_view);
 		ImageView emptyImageView = (ImageView) emptyView.findViewById(R.id.empty_state_image_view);
-		emptyImageView.setImageResource(night ? R.drawable.ic_empty_state_marker_history_night : R.drawable.ic_empty_state_marker_history_day);
+		if (Build.VERSION.SDK_INT >= 18) {
+			emptyImageView.setImageResource(night ? R.drawable.ic_empty_state_marker_history_night : R.drawable.ic_empty_state_marker_history_day);
+		} else {
+			emptyImageView.setVisibility(View.INVISIBLE);
+		}
 		recyclerView.setEmptyView(emptyView);
 		recyclerView.setAdapter(adapter);
 

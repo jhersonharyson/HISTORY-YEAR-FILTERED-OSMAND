@@ -1,11 +1,13 @@
 package net.osmand.plus.mapmarkers;
 
 import android.app.ProgressDialog;
+import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.DrawableRes;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.Fragment;
@@ -94,7 +96,7 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 
 	@Nullable
 	@Override
-	public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+	public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
 		final MapActivity mapActivity = getMapActivity();
 		markersHelper = mapActivity.getMyApplication().getMapMarkersHelper();
 		planRouteContext = markersHelper.getPlanRouteContext();
@@ -150,9 +152,7 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 		}
 		Fragment optionsFragment = fragmentManager.findFragmentByTag(PlanRouteOptionsBottomSheetDialogFragment.TAG);
 		if (optionsFragment != null) {
-			PlanRouteOptionsBottomSheetDialogFragment fragment = (PlanRouteOptionsBottomSheetDialogFragment) optionsFragment;
-			fragment.setSelectAll(!(selectedCount == markersHelper.getMapMarkers().size() && markersHelper.isStartFromMyLocation()));
-			fragment.setListener(createOptionsFragmentListener());
+			((PlanRouteOptionsBottomSheetDialogFragment) optionsFragment).setListener(createOptionsFragmentListener());
 		}
 
 		toolbarHeight = mapActivity.getResources().getDimensionPixelSize(R.dimen.dashboard_map_toolbar);
@@ -250,6 +250,7 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 
 		Toolbar toolbar = (Toolbar) mainView.findViewById(R.id.plan_route_toolbar);
 		toolbar.setNavigationIcon(getContentIcon(R.drawable.ic_arrow_back));
+		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View view) {
@@ -331,7 +332,6 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 				toPosition = holder.getAdapterPosition();
 				if (toPosition >= 0 && fromPosition >= 0) {
 					mapActivity.getMyApplication().getMapMarkersHelper().reorderActiveMarkersIfNeeded();
-					mapActivity.getMyApplication().getSettings().MAP_MARKERS_ORDER_BY_MODE.set(OsmandSettings.MapMarkersOrderByMode.CUSTOM);
 					mapActivity.refreshMap();
 					adapter.reloadData();
 					try {
@@ -723,9 +723,12 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 	private void optionsOnClick() {
 		MapActivity mapActivity = getMapActivity();
 		if (mapActivity != null) {
+			Bundle args = new Bundle();
+			args.putBoolean(PlanRouteOptionsBottomSheetDialogFragment.SELECT_ALL_KEY,
+					!(selectedCount == markersHelper.getMapMarkers().size() && markersHelper.isStartFromMyLocation()));
 			PlanRouteOptionsBottomSheetDialogFragment fragment = new PlanRouteOptionsBottomSheetDialogFragment();
+			fragment.setArguments(args);
 			fragment.setUsedOnMap(true);
-			fragment.setSelectAll(!(selectedCount == markersHelper.getMapMarkers().size() && markersHelper.isStartFromMyLocation()));
 			fragment.setListener(createOptionsFragmentListener());
 			fragment.show(mapActivity.getSupportFragmentManager(), PlanRouteOptionsBottomSheetDialogFragment.TAG);
 		}
@@ -903,9 +906,8 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 				List<LatLon> selectedLatLon = markersHelper.getSelectedMarkersLatLon();
 
 				LatLon start = startFromLoc ? new LatLon(myLoc.getLatitude(), myLoc.getLongitude()) : selectedLatLon.remove(0);
-				LatLon end = selectedLatLon.remove(selectedLatLon.size() - 1);
 
-				int[] sequence = new TspAnt().readGraph(selectedLatLon, start, end).solve();
+				int[] sequence = new TspAnt().readGraph(selectedLatLon, start, null).solve();
 
 				List<MapMarker> res = new ArrayList<>();
 				for (int i = 0; i < sequence.length; i++) {
@@ -963,6 +965,11 @@ public class PlanRouteFragment extends BaseOsmAndFragment implements OsmAndLocat
 			if (shadow != null) {
 				shadow.setVisibility(View.GONE);
 			}
+		}
+
+		@Override
+		public int getStatusBarColor(Context context, boolean night) {
+			return NO_COLOR;
 		}
 	}
 }

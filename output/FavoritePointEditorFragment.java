@@ -4,13 +4,13 @@ import android.app.Activity;
 import android.content.DialogInterface;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AlertDialog;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.Toast;
 
 import net.osmand.data.FavouritePoint;
 import net.osmand.data.LatLon;
@@ -52,7 +52,7 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 	}
 
 	@Override
-	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+	public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		View view = super.onCreateView(inflater, container, savedInstanceState);
 		if (view != null && editor.isNew()) {
 			Button replaceButton = (Button) view.findViewById(R.id.replace_button);
@@ -102,9 +102,9 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 	}
 
 	@Override
-	public void setCategory(String name) {
+	public void setCategory(String name, int color) {
 		group = helper.getGroup(name);
-		super.setCategory(name);
+		super.setCategory(name, group.color);
 	}
 
 	@Override
@@ -123,7 +123,7 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 		mapActivity.getSupportFragmentManager().beginTransaction()
 				//.setCustomAnimations(slideInAnim, slideOutAnim, slideInAnim, slideOutAnim)
 				.add(R.id.fragmentContainer, fragment, editor.getFragmentTag())
-				.addToBackStack(null).commit();
+				.addToBackStack(null).commitAllowingStateLoss();
 	}
 
 	public static void showAutoFillInstance(final MapActivity mapActivity, boolean autoFill) {
@@ -182,6 +182,9 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 			doAddFavorite(name, category, description);
 		} else {
 			helper.editFavouriteName(favorite, name, category, description);
+		}
+		if(getMapActivity() == null) {
+			return;
 		}
 		getMapActivity().refreshMap();
 		if (needDismiss) {
@@ -245,15 +248,16 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 
 	@Override
 	public Drawable getNameIcon() {
-		int color = defaultColor;
-		if (group != null) {
-			color = group.color;
-		}
-		return FavoriteImageDrawable.getOrCreate(getMapActivity(), color, false);
+		return FavoriteImageDrawable.getOrCreate(getMapActivity(), getPointColor(), false);
 	}
 
 	@Override
 	public Drawable getCategoryIcon() {
+		return getPaintedIcon(R.drawable.ic_action_folder_stroke, getPointColor());
+	}
+
+	@Override
+	public int getPointColor() {
 		int color = 0;
 		if (group != null) {
 			color = group.color;
@@ -261,6 +265,6 @@ public class FavoritePointEditorFragment extends PointEditorFragment {
 		if (color == 0) {
 			color = defaultColor;
 		}
-		return getPaintedIcon(R.drawable.ic_action_folder_stroke, color);
+		return color;
 	}
 }

@@ -7,6 +7,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.StatFs;
 import android.provider.Settings.Secure;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
@@ -118,7 +119,7 @@ public class FirstUsageWizardFragment extends BaseOsmAndFragment implements OsmA
 
 	@Nullable
 	@Override
-	public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+	public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
 		view = inflater.inflate(R.layout.first_usage_wizard_fragment, container, false);
 		AndroidUtils.addStatusBarPadding21v(getActivity(), view);
 
@@ -681,7 +682,7 @@ public class FirstUsageWizardFragment extends BaseOsmAndFragment implements OsmA
 				}
 				for (BinaryMapDataObject o : mapDataObjects) {
 					String fullName = osmandRegions.getFullName(o);
-					if (fullName.length() > selectedFullName.length()) {
+					if (fullName != null && fullName.length() > selectedFullName.length()) {
 						selectedFullName = fullName;
 					}
 				}

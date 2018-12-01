@@ -3,6 +3,7 @@ package net.osmand.plus.download;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
@@ -12,18 +13,18 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.AsyncTask.Status;
-import android.os.Build;
 import android.os.StatFs;
 import android.support.annotation.UiThread;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationCompat.Builder;
 import android.support.v7.app.AlertDialog;
-import android.support.v7.app.NotificationCompat;
-import android.support.v7.app.NotificationCompat.Builder;
 import android.view.View;
 import android.widget.Toast;
 import net.osmand.IndexConstants;
 import net.osmand.PlatformUtil;
 import net.osmand.map.WorldRegion;
 import net.osmand.map.WorldRegion.RegionParams;
+import net.osmand.plus.NotificationHelper;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.OsmandSettings.OsmandPreference;
@@ -32,6 +33,7 @@ import net.osmand.plus.Version;
 import net.osmand.plus.base.BasicProgressAsyncTask;
 import net.osmand.plus.download.DownloadFileHelper.DownloadFileShowWarning;
 import net.osmand.plus.helpers.DatabaseHelper;
+import net.osmand.plus.inapp.InAppPurchaseHelper;
 import net.osmand.plus.resources.ResourceManager;
 import net.osmand.util.Algorithms;
 
@@ -95,7 +97,7 @@ public class DownloadIndexesThread {
 			this.uiActivity = null;
 		}
 	}
-	
+
 	@UiThread
 	protected void downloadInProgress() {
 		if (uiActivity != null) {
@@ -112,18 +114,25 @@ public class DownloadIndexesThread {
 			Intent contentIntent = new Intent(app, DownloadActivity.class);
 			PendingIntent contentPendingIntent = PendingIntent.getActivity(app, 0, contentIntent,
 					PendingIntent.FLAG_UPDATE_CURRENT);
-			Builder bld = new NotificationCompat.Builder(app);
+			if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+				app.getNotificationHelper().createNotificationChannel();
+		    }
+			Builder bld = new NotificationCompat.Builder(app, NotificationHelper.NOTIFICATION_CHANEL_ID);
 			String msg = Version.getAppName(app);
 			if(!isFinished) {
 				msg = task.getDescription();
 			}
 			StringBuilder contentText = new StringBuilder();
 			List<IndexItem> ii = getCurrentDownloadingItems();
-			for(IndexItem i : ii) {
-				if(contentText.length() > 0) {
+			for (IndexItem i : ii) {
+				if (!isFinished && task.getTag() == i) {
+					continue;
+				}
+				if (contentText.length() > 0) {
 					contentText.append(", ");
 				}
 				contentText.append(i.getVisibleName(app, app.getRegions()));
+				contentText.append(" ").append(i.getType().getString(app));
 			}
 			bld.setContentTitle(msg).setSmallIcon(android.R.drawable.stat_sys_download)
 					.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -250,7 +259,7 @@ public class DownloadIndexesThread {
 				return;
 			}	
 		}
-		if(uiActivity instanceof Activity) {
+		if (uiActivity instanceof Activity) {
 			app.logEvent((Activity) uiActivity, "download_files");
 		}
 		for(IndexItem item : items) {
@@ -274,6 +283,22 @@ public class DownloadIndexesThread {
 		}
 	}
 
+	public void cancelDownload(List<IndexItem> items) {
+		if (items != null) {
+			boolean updateProgress = false;
+			for (IndexItem item : items) {
+				if (currentDownloadingItem == item) {
+					downloadFileHelper.setInterruptDownloading(true);
+				} else {
+					indexItemDownloading.remove(item);
+					updateProgress = true;
+				}
+			}
+			if (updateProgress) {
+				downloadInProgress();
+			}
+		}
+	}
 
 	public IndexItem getCurrentDownloadingItem() {
 		return currentDownloadingItem;
@@ -558,9 +583,7 @@ public class DownloadIndexesThread {
 		}
 		
 		private boolean validateNotExceedsFreeLimit(IndexItem item) {
-			boolean exceed = Version.isFreeVersion(app)
-					&& !app.getSettings().LIVE_UPDATES_PURCHASED.get()
-					&& !app.getSettings().FULL_VERSION_PURCHASED.get()
+			boolean exceed = !Version.isPaidVersion(app)
 					&& DownloadActivityType.isCountedInDownloads(item)
 					&& downloads.get() >= DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS;
 			if(exceed) {

@@ -14,10 +14,10 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
-import android.support.v7.widget.AppCompatCheckBox;
 import android.support.v7.widget.ListPopupWindow;
 import android.support.v7.widget.SwitchCompat;
 import android.text.SpannableString;
@@ -30,6 +30,7 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.CompoundButton.OnCheckedChangeListener;
 import android.widget.ImageView;
@@ -66,7 +67,7 @@ import net.osmand.plus.GPXUtilities.GPXTrackAnalysis;
 import net.osmand.plus.GPXUtilities.Speed;
 import net.osmand.plus.GPXUtilities.TrkSegment;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
-import net.osmand.plus.IconsCache;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
@@ -326,7 +327,7 @@ public class GpxUiHelper {
 											final List<GPXInfo> list,
 											final ContextMenuAdapter adapter) {
 		final OsmandApplication app = (OsmandApplication) activity.getApplication();
-		final IconsCache iconsCache = app.getIconsCache();
+		final UiUtilities iconsCache = app.getUIUtilities();
 		final File dir = app.getAppPath(IndexConstants.GPX_INDEX_DIR);
 		AlertDialog.Builder builder = new AlertDialog.Builder(activity);
 		final int layout = R.layout.list_menu_item_native_singlechoice;
@@ -380,7 +381,7 @@ public class GpxUiHelper {
 					public void onClick(DialogInterface dialog, int which) {
 
 						int position = selectedPosition[0];
-						if (position != -1) {
+						if (position != -1 && position < list.size()) {
 							if (showCurrentGpx && position == 0) {
 								callbackWithObject.processResult(null);
 								app.getSettings().LAST_SELECTED_GPX_TRACK_FOR_NEW_POINT.set(null);
@@ -471,9 +472,10 @@ public class GpxUiHelper {
 
 				if (item.getSelected() == null) {
 					v.findViewById(R.id.check_item).setVisibility(View.GONE);
+					v.findViewById(R.id.check_local_index).setVisibility(View.GONE);
 				} else {
 					if (checkLayout) {
-						final AppCompatCheckBox ch = ((AppCompatCheckBox) v.findViewById(R.id.toggle_checkbox_item));
+						final CheckBox ch = ((CheckBox) v.findViewById(R.id.check_local_index));
 						ch.setVisibility(View.VISIBLE);
 						v.findViewById(R.id.toggle_item).setVisibility(View.GONE);
 						ch.setOnCheckedChangeListener(null);
@@ -635,7 +637,7 @@ public class GpxUiHelper {
 					}
 				});
 			}
-			dlg.getListView().addFooterView(footerView);
+			dlg.getListView().addFooterView(footerView, null, false);
 		}
 		dlg.getListView().setOnItemClickListener(new OnItemClickListener() {
 			@Override
@@ -745,13 +747,13 @@ public class GpxUiHelper {
 			v.findViewById(R.id.unknown_section).setVisibility(View.GONE);
 			ImageView distanceI = (ImageView) v.findViewById(R.id.distance_icon);
 			distanceI.setVisibility(View.VISIBLE);
-			distanceI.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_small_distance));
+			distanceI.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_small_distance));
 			ImageView pointsI = (ImageView) v.findViewById(R.id.points_icon);
 			pointsI.setVisibility(View.VISIBLE);
-			pointsI.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_small_point));
+			pointsI.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_small_point));
 			ImageView timeI = (ImageView) v.findViewById(R.id.time_icon);
 			timeI.setVisibility(View.VISIBLE);
-			timeI.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_small_time));
+			timeI.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_small_time));
 			TextView time = (TextView) v.findViewById(R.id.time);
 			TextView distance = (TextView) v.findViewById(R.id.distance);
 			TextView pointsCount = (TextView) v.findViewById(R.id.points_count);
@@ -781,7 +783,7 @@ public class GpxUiHelper {
 					if (resultCode == Activity.RESULT_OK) {
 						if (resultData != null) {
 							Uri uri = resultData.getData();
-							if (mapActivity.getGpxImportHelper().handleGpxImport(uri, false)) {
+							if (mapActivity.getImportHelper().handleGpxImport(uri, false)) {
 								dialog.dismiss();
 							}
 						}
@@ -815,9 +817,9 @@ public class GpxUiHelper {
 		}
 		int color = GpxAppearanceAdapter.parseTrackColor(renderer, prefColorValue);
 		if (color == -1) {
-			colorImageView.setImageDrawable(app.getIconsCache().getThemedIcon(R.drawable.ic_action_circle));
+			colorImageView.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_action_circle));
 		} else {
-			colorImageView.setImageDrawable(app.getIconsCache().getPaintedIcon(R.drawable.ic_action_circle, color));
+			colorImageView.setImageDrawable(app.getUIUtilities().getPaintedIcon(R.drawable.ic_action_circle, color));
 		}
 	}
 
@@ -1178,10 +1180,12 @@ public class GpxUiHelper {
 		return values;
 	}
 
-	public static OrderedLineDataSet createGPXElevationDataSet(OsmandApplication ctx, LineChart mChart,
-															   GPXTrackAnalysis analysis,
-															   GPXDataSetAxisType axisType,
-															   boolean useRightAxis, boolean drawFilled) {
+	public static OrderedLineDataSet createGPXElevationDataSet(@NonNull OsmandApplication ctx,
+															   @NonNull LineChart mChart,
+															   @NonNull GPXTrackAnalysis analysis,
+															   @NonNull GPXDataSetAxisType axisType,
+															   boolean useRightAxis,
+															   boolean drawFilled) {
 		OsmandSettings settings = ctx.getSettings();
 		OsmandSettings.MetricsConstants mc = settings.METRIC_SYSTEM.get();
 		boolean useFeet = (mc == OsmandSettings.MetricsConstants.MILES_AND_FEET) || (mc == OsmandSettings.MetricsConstants.MILES_AND_YARDS);
@@ -1263,10 +1267,12 @@ public class GpxUiHelper {
 		return dataSet;
 	}
 
-	public static OrderedLineDataSet createGPXSpeedDataSet(OsmandApplication ctx, LineChart mChart,
-														   GPXTrackAnalysis analysis,
-														   GPXDataSetAxisType axisType,
-														   boolean useRightAxis, boolean drawFilled) {
+	public static OrderedLineDataSet createGPXSpeedDataSet(@NonNull OsmandApplication ctx,
+														   @NonNull LineChart mChart,
+														   @NonNull GPXTrackAnalysis analysis,
+														   @NonNull GPXDataSetAxisType axisType,
+														   boolean useRightAxis,
+														   boolean drawFilled) {
 		OsmandSettings settings = ctx.getSettings();
 		boolean light = settings.isLightContent();
 
@@ -1410,11 +1416,13 @@ public class GpxUiHelper {
 		return dataSet;
 	}
 
-	public static OrderedLineDataSet createGPXSlopeDataSet(OsmandApplication ctx, LineChart mChart,
-														   GPXTrackAnalysis analysis,
-														   GPXDataSetAxisType axisType,
-														   List<Entry> eleValues,
-														   boolean useRightAxis, boolean drawFilled) {
+	public static OrderedLineDataSet createGPXSlopeDataSet(@NonNull OsmandApplication ctx,
+														   @NonNull LineChart mChart,
+														   @NonNull GPXTrackAnalysis analysis,
+														   @NonNull GPXDataSetAxisType axisType,
+														   @Nullable List<Entry> eleValues,
+														   boolean useRightAxis,
+														   boolean drawFilled) {
 		if (axisType == GPXDataSetAxisType.TIME) {
 			return null;
 		}
@@ -1602,7 +1610,7 @@ public class GpxUiHelper {
 		}
 
 		public Drawable getImageDrawable(@NonNull OsmandApplication app) {
-			return app.getIconsCache().getThemedIcon(imageId);
+			return app.getUIUtilities().getThemedIcon(imageId);
 		}
 
 		public static String getName(@NonNull Context ctx, @NonNull GPXDataSetType[] types) {
@@ -1655,7 +1663,7 @@ public class GpxUiHelper {
 		}
 
 		public Drawable getImageDrawable(OsmandApplication app) {
-			return app.getIconsCache().getThemedIcon(imageId);
+			return app.getUIUtilities().getThemedIcon(imageId);
 		}
 	}
 

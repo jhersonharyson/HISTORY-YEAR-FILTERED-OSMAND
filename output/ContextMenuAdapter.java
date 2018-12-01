@@ -10,6 +10,7 @@ import android.support.annotation.IdRes;
 import android.support.annotation.LayoutRes;
 import android.support.v4.app.FragmentActivity;
 import android.support.v7.widget.AppCompatImageView;
+import android.text.TextUtils;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.view.ViewGroup;
@@ -30,6 +31,9 @@ import net.osmand.plus.dialogs.HelpArticleDialogFragment;
 import org.apache.commons.logging.Log;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -79,10 +83,32 @@ public class ContextMenuAdapter {
 		this.changeAppModeListener = changeAppModeListener;
 	}
 
+	public void sortItemsByOrder() {
+		Collections.sort(items, new Comparator<ContextMenuItem>() {
+			@Override
+			public int compare(ContextMenuItem item1, ContextMenuItem item2) {
+				int order1 = item1.getOrder();
+				int order2 = item2.getOrder();
+				if (order1 < order2) {
+					return -1;
+				} else if (order1 == order2) {
+					return 0;
+				}
+				return 1;
+			}
+		});
+	}
 
 	public ArrayAdapter<ContextMenuItem> createListAdapter(final Activity activity, final boolean lightTheme) {
 		final int layoutId = DEFAULT_LAYOUT_ID;
 		final OsmandApplication app = ((OsmandApplication) activity.getApplication());
+		final OsmAndAppCustomization customization = app.getAppCustomization();
+		for (Iterator<ContextMenuItem> iterator = items.iterator(); iterator.hasNext(); ) {
+			String id = iterator.next().getId();
+			if (!TextUtils.isEmpty(id) && !customization.isFeatureEnabled(id)) {
+				iterator.remove();
+			}
+		}
 		return new ContextMenuArrayAdapter(activity, layoutId, R.id.title,
 				items.toArray(new ContextMenuItem[items.size()]), app, lightTheme, changeAppModeListener);
 	}
@@ -93,7 +119,7 @@ public class ContextMenuAdapter {
 		@LayoutRes
 		private int layoutId;
 		private final ConfigureMapMenu.OnClickListener changeAppModeListener;
-		private final IconsCache mIconsCache;
+		private final UiUtilities mIconsCache;
 
 		public ContextMenuArrayAdapter(Activity context,
 									   @LayoutRes int layoutRes,
@@ -107,7 +133,7 @@ public class ContextMenuAdapter {
 			this.lightTheme = lightTheme;
 			this.layoutId = layoutRes;
 			this.changeAppModeListener = changeAppModeListener;
-			mIconsCache = app.getIconsCache();
+			mIconsCache = app.getUIUtilities();
 		}
 
 		@Override
@@ -152,7 +178,7 @@ public class ContextMenuAdapter {
 			}
 			if (layoutId == R.layout.help_to_improve_item) {
 				TextView feedbackButton = (TextView) convertView.findViewById(R.id.feedbackButton);
-				Drawable pollIcon = app.getIconsCache().getThemedIcon(R.drawable.ic_action_big_poll);
+				Drawable pollIcon = app.getUIUtilities().getThemedIcon(R.drawable.ic_action_big_poll);
 				feedbackButton.setCompoundDrawablesWithIntrinsicBounds(null, pollIcon, null, null);
 				feedbackButton.setOnClickListener(new View.OnClickListener() {
 					@Override
@@ -164,7 +190,7 @@ public class ContextMenuAdapter {
 				});
 				TextView contactUsButton = (TextView) convertView.findViewById(R.id.contactUsButton);
 				Drawable contactUsIcon =
-						app.getIconsCache().getThemedIcon(R.drawable.ic_action_big_feedback);
+						app.getUIUtilities().getThemedIcon(R.drawable.ic_action_big_feedback);
 				contactUsButton.setCompoundDrawablesWithIntrinsicBounds(null, contactUsIcon, null,
 						null);
 				final String email = app.getString(R.string.support_email);

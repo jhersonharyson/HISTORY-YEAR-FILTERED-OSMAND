@@ -284,6 +284,12 @@ public class MeasurementEditingContext {
 		params.ctx = application;
 		params.calculationProgress = calculationProgress = new RouteCalculationProgress();
 		params.calculationProgressCallback = new RoutingHelper.RouteCalculationProgressCallback() {
+
+			@Override
+			public void start() {
+
+			}
+
 			@Override
 			public void updateProgress(int progress) {
 				int pairs = calculatedPairs + snapToRoadPairsToCalculate.size();
@@ -309,9 +315,13 @@ public class MeasurementEditingContext {
 			public void onRouteCalculated(List<Location> locations) {
 				ArrayList<WptPt> pts = new ArrayList<>(locations.size());
 				for (Location loc : locations) {
+					if(!loc.hasAltitude()){
+						continue;
+					}
 					WptPt pt = new WptPt();
 					pt.lat = loc.getLatitude();
 					pt.lon = loc.getLongitude();
+					pt.ele = loc.getAltitude();
 					pts.add(pt);
 				}
 				calculatedPairs++;
