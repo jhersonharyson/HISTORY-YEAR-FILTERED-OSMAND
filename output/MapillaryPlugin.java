@@ -39,7 +39,7 @@ import java.text.MessageFormat;
 import java.util.List;
 
 import static android.content.Intent.ACTION_VIEW;
-import static net.osmand.plus.OsmAndCustomizationConstants.MAPILLARY;
+import static net.osmand.aidlapi.OsmAndCustomizationConstants.MAPILLARY;
 
 public class MapillaryPlugin extends OsmandPlugin {
 	public static final String ID = "osmand.mapillary";
@@ -252,7 +252,7 @@ public class MapillaryPlugin extends OsmandPlugin {
 	}
 
 	public static boolean installMapillary(Activity activity, OsmandApplication app) {
-		app.logEvent(activity, "install_mapillary");
+		app.logEvent("install_mapillary");
 		boolean success = execInstall(app, Version.getUrlWithUtmRef(app, MAPILLARY_PACKAGE_ID));
 		if (!success) {
 			success = execInstall(app, "https://play.google.com/store/apps/details?id=" + MAPILLARY_PACKAGE_ID);

@@ -14,8 +14,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import net.osmand.IndexConstants;
-import net.osmand.plus.GPXUtilities;
-import net.osmand.plus.GPXUtilities.GPXFile;
+import net.osmand.GPXUtilities;
+import net.osmand.GPXUtilities.GPXFile;
 import net.osmand.plus.GpxSelectionHelper;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
 import net.osmand.plus.OsmAndAppCustomization;
@@ -167,7 +167,7 @@ public class DashTrackFragment extends DashBaseFragment {
 			info.subfolder = "";
 			info.file = f;
 			View v = inflater.inflate(R.layout.dash_gpx_track_item, null, false);
-			AvailableGPXFragment.updateGpxInfoView(v, info, app, true);
+			AvailableGPXFragment.updateGpxInfoView(v, info, app, true, null);
 			
 			v.setOnClickListener(new View.OnClickListener() {
 				@Override
@@ -259,7 +259,7 @@ public class DashTrackFragment extends DashBaseFragment {
 					AvailableGPXFragment.GpxInfo info = new AvailableGPXFragment.GpxInfo();
 					info.subfolder = "";
 					info.file = f;
-					AvailableGPXFragment.updateGpxInfoView(pView, info, app, true);
+					AvailableGPXFragment.updateGpxInfoView(pView, info, app, true, null);
 					updateShowOnMap(app, f, v, showOnMap);
 				}
 			});
@@ -271,7 +271,7 @@ public class DashTrackFragment extends DashBaseFragment {
 					Runnable run = new Runnable() {
 						@Override
 						public void run() {
-							showOnMap(GPXUtilities.loadGPXFile(app, f));
+							showOnMap(GPXUtilities.loadGPXFile(f));
 						}
 					};
 					run.run();

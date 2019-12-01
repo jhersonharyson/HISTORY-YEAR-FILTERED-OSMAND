@@ -60,7 +60,6 @@ import net.osmand.plus.download.ui.SearchDialogFragment;
 import net.osmand.plus.download.ui.UpdatesIndexFragment;
 import net.osmand.plus.helpers.FileNameTranslationHelper;
 import net.osmand.plus.inapp.InAppPurchaseHelper;
-import net.osmand.plus.inapp.InAppPurchaseHelper.InAppPurchaseListener;
 import net.osmand.plus.inapp.InAppPurchaseHelper.InAppPurchaseTaskType;
 import net.osmand.plus.openseamapsplugin.NauticalMapsPlugin;
 import net.osmand.plus.srtmplugin.SRTMPlugin;
@@ -131,7 +130,6 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	protected void onCreate(Bundle savedInstanceState) {
 		getMyApplication().applyTheme(this);
 		super.onCreate(savedInstanceState);
-		getMyApplication().fetchRemoteParams();
 		downloadThread = getMyApplication().getDownloadThread();
 		DownloadResources indexes = getDownloadThread().getIndexes();
 		if (!indexes.isDownloadedFromInternet) {
@@ -404,7 +402,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 						&& isDownlodingPermitted(ctx.getMyApplication().getSettings())) {
 					collapseBanner();
 				} else {
-					ctx.getMyApplication().logEvent(ctx, "click_free_dialog");
+					ctx.getMyApplication().logEvent("click_free_dialog");
 					ChoosePlanDialogFragment.showFreeVersionInstance(ctx.getSupportFragmentManager());
 				}
 			}
@@ -438,7 +436,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			freeVersionBanner.setVisibility(View.VISIBLE);
 			downloadsLeftProgressBar.setMax(DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS);
 			freeVersionDescriptionTextView.setText(ctx.getString(R.string.free_version_message,
-					DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS));
+					DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS +"" ));
 
 			LinearLayout marksLinearLayout = (LinearLayout) freeVersionBanner.findViewById(R.id.marksLinearLayout);
 			Space spaceView = new Space(ctx);

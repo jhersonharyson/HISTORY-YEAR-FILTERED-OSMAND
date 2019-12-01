@@ -4,7 +4,6 @@ import android.Manifest;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.ClipData;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
@@ -56,6 +55,7 @@ import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.OsmandSettings.CommonPreference;
 import net.osmand.plus.OsmandSettings.OsmandPreference;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.SavingTrackHelper;
 import net.osmand.plus.activities.TabActivity.TabItem;
@@ -91,7 +91,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
-import static net.osmand.plus.OsmAndCustomizationConstants.RECORDING_LAYER;
+import static net.osmand.aidlapi.OsmAndCustomizationConstants.RECORDING_LAYER;
 
 
 public class AudioVideoNotesPlugin extends OsmandPlugin {
@@ -111,8 +111,8 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 	private static final int TAKE_VIDEO_NOTE_ITEM_ORDER = 4300;
 	private static final int TAKE_PHOTO_NOTE_ITEM_ORDER = 4500;
 
-	private static Method mRegisterMediaButtonEventReceiver;
-	private static Method mUnregisterMediaButtonEventReceiver;
+//	private static Method mRegisterMediaButtonEventReceiver;
+//	private static Method mUnregisterMediaButtonEventReceiver;
 	private OsmandApplication app;
 	private TextInfoWidget recordControl;
 
@@ -407,8 +407,7 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 				Method saveAttributes = exClass.getMethod("saveAttributes", new Class[]{});
 				saveAttributes.invoke(exInstance);
 			} catch (Exception e) {
-				e.printStackTrace();
-				log.error(e);
+				log.error(e.getMessage(), e);
 			}
 		}
 
@@ -424,8 +423,7 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 				Integer it = (Integer) getAttributeInt.invoke(exInstance, "Orientation", 1);
 				orientation = it;
 			} catch (Exception e) {
-				e.printStackTrace();
-				log.error(e);
+				log.error(e.getMessage(), e);
 			}
 			return orientation;
 		}
@@ -512,24 +510,24 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 
 	}
 
-	private static void initializeRemoteControlRegistrationMethods() {
-		try {
+//	private static void initializeRemoteControlRegistrationMethods() {
+//		try {
 			// API 8
-			if (mRegisterMediaButtonEventReceiver == null) {
-				mRegisterMediaButtonEventReceiver = AudioManager.class.getMethod("registerMediaButtonEventReceiver",
-						new Class[]{ComponentName.class});
-			}
-			if (mUnregisterMediaButtonEventReceiver == null) {
-				mUnregisterMediaButtonEventReceiver = AudioManager.class.getMethod("unregisterMediaButtonEventReceiver",
-						new Class[]{ComponentName.class});
-			}
-			/* success, this device will take advantage of better remote */
-			/* control event handling */
-		} catch (NoSuchMethodException nsme) {
-			/* failure, still using the legacy behavior, but this app */
-			/* is future-proof! */
-		}
-	}
+//			if (mRegisterMediaButtonEventReceiver == null) {
+//				mRegisterMediaButtonEventReceiver = AudioManager.class.getMethod("registerMediaButtonEventReceiver",
+//						new Class[]{ComponentName.class});
+//			}
+//			if (mUnregisterMediaButtonEventReceiver == null) {
+//				mUnregisterMediaButtonEventReceiver = AudioManager.class.getMethod("unregisterMediaButtonEventReceiver",
+//						new Class[]{ComponentName.class});
+//			}
+//			/* success, this device will take advantage of better remote */
+//			/* control event handling */
+//		} catch (NoSuchMethodException nsme) {
+//			/* failure, still using the legacy behavior, but this app */
+//			/* is future-proof! */
+//		}
+//	}
 
 	@Override
 	public String getId() {
@@ -578,11 +576,11 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 
 	@Override
 	public boolean init(@NonNull final OsmandApplication app, Activity activity) {
-		initializeRemoteControlRegistrationMethods();
-		AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
-		if (am != null) {
-			registerMediaListener(am);
-		}
+//		initializeRemoteControlRegistrationMethods();
+//		AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
+//		if (am != null) {
+//			registerMediaListener(am);
+//		}
 		return true;
 	}
 
@@ -601,30 +599,30 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 		return currentRecording;
 	}
 
-	private void registerMediaListener(AudioManager am) {
+//	private void registerMediaListener(AudioManager am) {
+//
+//		ComponentName receiver = new ComponentName(app.getPackageName(), MediaRemoteControlReceiver.class.getName());
+//		try {
+//			if (mRegisterMediaButtonEventReceiver == null) {
+//				return;
+//			}
+//			mRegisterMediaButtonEventReceiver.invoke(am, receiver);
+//		} catch (Exception ite) {
+//			log.error(ite.getMessage(), ite);
+//		}
+//	}
 
-		ComponentName receiver = new ComponentName(app.getPackageName(), MediaRemoteControlReceiver.class.getName());
-		try {
-			if (mRegisterMediaButtonEventReceiver == null) {
-				return;
-			}
-			mRegisterMediaButtonEventReceiver.invoke(am, receiver);
-		} catch (Exception ite) {
-			log.error(ite.getMessage(), ite);
-		}
-	}
-
-	private void unregisterMediaListener(AudioManager am) {
-		ComponentName receiver = new ComponentName(app.getPackageName(), MediaRemoteControlReceiver.class.getName());
-		try {
-			if (mUnregisterMediaButtonEventReceiver == null) {
-				return;
-			}
-			mUnregisterMediaButtonEventReceiver.invoke(am, receiver);
-		} catch (Exception ite) {
-			log.error(ite.getMessage(), ite);
-		}
-	}
+//	private void unregisterMediaListener(AudioManager am) {
+//		ComponentName receiver = new ComponentName(app.getPackageName(), MediaRemoteControlReceiver.class.getName());
+//		try {
+//			if (mUnregisterMediaButtonEventReceiver == null) {
+//				return;
+//			}
+//			mUnregisterMediaButtonEventReceiver.invoke(am, receiver);
+//		} catch (Exception ite) {
+//			log.error(ite.getMessage(), ite);
+//		}
+//	}
 
 	@Override
 	public void registerLayerContextMenuActions(final OsmandMapTileView mapView, ContextMenuAdapter adapter, final MapActivity mapActivity) {
@@ -786,9 +784,10 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 	}
 
 	private void chooseDefaultAction(final double lat, final double lon, final MapActivity mapActivity) {
-		AlertDialog.Builder ab = new AlertDialog.Builder(mapActivity);
+		boolean nightMode = app.getDaynightHelper().isNightModeForMapControls();
+		AlertDialog.Builder ab = new AlertDialog.Builder(UiUtilities.getThemedContext(mapActivity, nightMode));
 		ab.setItems(
-				new String[]{mapActivity.getString(R.string.recording_context_menu_arecord),
+				new String[] {mapActivity.getString(R.string.recording_context_menu_arecord),
 						mapActivity.getString(R.string.recording_context_menu_vrecord),
 						mapActivity.getString(R.string.recording_context_menu_precord),}, new OnClickListener() {
 					@Override
@@ -867,8 +866,8 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 	@Override
 	public void mapActivityResume(MapActivity activity) {
 		this.mapActivity = activity;
-		((AudioManager) activity.getSystemService(Context.AUDIO_SERVICE)).registerMediaButtonEventReceiver(
-				new ComponentName(activity, MediaRemoteControlReceiver.class));
+//		((AudioManager) activity.getSystemService(Context.AUDIO_SERVICE)).registerMediaButtonEventReceiver(
+//				new ComponentName(activity, MediaRemoteControlReceiver.class));
 		if (runAction != -1) {
 			takeAction(activity, actionLon, actionLat, runAction);
 			runAction = -1;
@@ -1134,7 +1133,7 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 			try {
 				mediaRec.stop();
 			} catch (IllegalStateException e) {
-				e.printStackTrace();
+				log.error(e.getMessage(), e);
 			}
 			indexFile(true, mediaRecFile);
 			mediaRec.release();
@@ -1165,7 +1164,7 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 
 				} catch (Exception e) {
 					Toast.makeText(app, e.getMessage(), Toast.LENGTH_LONG).show();
-					e.printStackTrace();
+					log.error(e.getMessage(), e);
 					res = false;
 				}
 			}
@@ -1381,7 +1380,6 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 						closeRecordingMenu();
 						closeCamera();
 						finishRecording();
-						e.printStackTrace();
 					}
 				}
 
@@ -1416,7 +1414,6 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 								closeRecordingMenu();
 								closeCamera();
 								finishRecording();
-								e.printStackTrace();
 							}
 						}
 					});
@@ -1710,10 +1707,10 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 
 	@Override
 	public void disable(OsmandApplication app) {
-		AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
-		if (am != null) {
-			unregisterMediaListener(am);
-		}
+//		AudioManager am = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
+//		if (am != null) {
+//			unregisterMediaListener(am);
+//		}
 	}
 
 	@Override
@@ -1898,7 +1895,7 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 			try {
 				ctx.startActivity(vint);
 			} catch (Exception e) {
-				e.printStackTrace();
+				log.error(e.getMessage(), e);
 			}
 			return;
 		} else if (r.isPhoto()) {
@@ -1906,7 +1903,11 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 			vint.setDataAndType(AndroidUtils.getUriForFile(ctx, r.file), "image/*");
 			vint.setFlags(0x10000000);
 			vint.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-			ctx.startActivity(vint);
+			try {
+				ctx.startActivity(vint);
+			} catch (Exception e) {
+				log.error(e.getMessage(), e);
+			}
 			return;
 		}
 
@@ -2061,7 +2062,6 @@ public class AudioVideoNotesPlugin extends OsmandPlugin {
 				closeRecordingMenu();
 				closeCamera();
 				finishRecording();
-				e.printStackTrace();
 			}
 		}
 	}

@@ -24,6 +24,7 @@ import net.osmand.OsmAndCollator;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.base.MenuBottomSheetDialogFragment;
 import net.osmand.plus.base.bottomsheetmenu.BaseBottomSheetItem;
@@ -53,7 +54,6 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 	private LinearLayout stylesContainer;
 	private BottomSheetItemTitleWithDescrAndButton descrItem;
 	private View.OnClickListener onStyleClickListener;
-	private ColorStateList rbColorList;
 
 	private TreeMap<String, String> stylesMap;
 	private String selectedStyle;
@@ -78,8 +78,6 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 			selectedStyle = RendererRegistry.DEFAULT_RENDER;
 		}
 
-		rbColorList = AndroidUtils.createCheckedColorStateList(context, R.color.icon_color, getActiveColorId());
-
 		items.add(new TitleItem(getString(R.string.map_widget_renderer)));
 
 		descrItem = (BottomSheetItemTitleWithDescrAndButton) new BottomSheetItemTitleWithDescrAndButton.Builder()
@@ -92,6 +90,7 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 								? R.string.hide_full_description : R.string.show_full_description));
 						descrItem.setDescriptionMaxLines(descriptionExpanded
 								? Integer.MAX_VALUE : COLLAPSED_DESCRIPTION_LINES);
+						setupHeightAndBackground(getView());
 					}
 				})
 				.setDescription(RendererRegistry.getRendererDescription(context, selectedStyle))
@@ -150,7 +149,7 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 
 	@Override
 	protected boolean useScrollableItemsContainer() {
-		return false;
+		return true;
 	}
 
 	@Nullable
@@ -214,7 +213,7 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 
 			RadioButton rb = (RadioButton) view.findViewById(R.id.compound_button);
 			rb.setChecked(selected);
-			CompoundButtonCompat.setButtonTintList(rb, rbColorList);
+			UiUtilities.setupCompoundButton(getMyApplication(), rb, nightMode, true);
 
 			counter++;
 		}
@@ -223,8 +222,8 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 	@ColorInt
 	private int getStyleTitleColor(boolean selected) {
 		int colorId = selected
-				? getActiveColorId()
-				: nightMode ? R.color.primary_text_dark : R.color.primary_text_light;
+				? getMyApplication() != null ? getMyApplication().getSettings().APPLICATION_MODE.get().getIconColorInfo().getColor(nightMode) : getActiveColorId()
+				: nightMode ? R.color.text_color_primary_dark : R.color.text_color_primary_light;
 		return getResolvedColor(colorId);
 	}
 

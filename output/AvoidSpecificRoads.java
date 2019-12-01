@@ -1,5 +1,6 @@
 package net.osmand.plus.helpers;
 
+import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.drawable.Drawable;
 import android.support.annotation.DrawableRes;
@@ -7,6 +8,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AlertDialog;
 import android.text.TextUtils;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -25,6 +27,7 @@ import net.osmand.plus.ApplicationMode;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.mapcontextmenu.MapContextMenu;
 import net.osmand.plus.routing.RoutingHelper;
@@ -58,16 +61,19 @@ public class AvoidSpecificRoads {
 		}
 	}
 
-	private ArrayAdapter<LatLon> createAdapter(final MapActivity ctx) {
+	private ArrayAdapter<LatLon> createAdapter(MapActivity mapActivity, boolean nightMode) {
 		final ArrayList<LatLon> points = new ArrayList<>(impassableRoads.keySet());
-		final LatLon mapLocation = ctx.getMapLocation();
-		return new ArrayAdapter<LatLon>(ctx, R.layout.waypoint_reached, R.id.title, points) {
+		final LatLon mapLocation = mapActivity.getMapLocation();
+		final LayoutInflater inflater = UiUtilities.getInflater(mapActivity, nightMode);
+		Context themedContext = UiUtilities.getThemedContext(mapActivity, nightMode);
+
+		return new ArrayAdapter<LatLon>(themedContext, R.layout.waypoint_reached, R.id.title, points) {
 			@NonNull
 			@Override
 			public View getView(final int position, View convertView, @NonNull ViewGroup parent) {
 				View v = convertView;
 				if (v == null || v.findViewById(R.id.info_close) == null) {
-					v = ctx.getLayoutInflater().inflate(R.layout.waypoint_reached, parent, false);
+					v = inflater.inflate(R.layout.waypoint_reached, parent, false);
 				}
 				final LatLon item = getItem(position);
 				v.findViewById(R.id.all_points).setVisibility(View.GONE);
@@ -101,7 +107,7 @@ public class AvoidSpecificRoads {
 		return OsmAndFormatter.getFormattedDistance((float) dist, app);
 	}
 
-	private String getText(@Nullable LatLon point) {
+	public String getText(@Nullable LatLon point) {
 		if (point != null) {
 			RouteDataObject obj = impassableRoads.get(point);
 			if (obj != null) {
@@ -121,6 +127,23 @@ public class AvoidSpecificRoads {
 		return app.getString(R.string.shared_string_road);
 	}
 
+	public String getText(@Nullable RouteDataObject obj) {
+		if (obj != null) {
+			String locale = app.getSettings().MAP_PREFERRED_LOCALE.get();
+			boolean transliterate = app.getSettings().MAP_TRANSLITERATE_NAMES.get();
+			String name = RoutingHelper.formatStreetName(
+					obj.getName(locale, transliterate),
+					obj.getRef(locale, transliterate, true),
+					obj.getDestinationName(locale, transliterate, true),
+					app.getString(R.string.towards)
+			);
+			if (!TextUtils.isEmpty(name)) {
+				return name;
+			}
+		}
+		return app.getString(R.string.shared_string_road);
+	}
+
 	private void recalculateRoute() {
 		RoutingHelper rh = app.getRoutingHelper();
 		if (rh.isRouteCalculated() || rh.isRouteBeingCalculated()) {
@@ -128,11 +151,11 @@ public class AvoidSpecificRoads {
 		}
 	}
 
-	private void removeImpassableRoad(LatLon latLon) {
+	public void removeImpassableRoad(LatLon latLon) {
 		app.getSettings().removeImpassableRoad(latLon);
 		RouteDataObject obj = impassableRoads.remove(latLon);
 		if (obj != null) {
-			app.getDefaultRoutingConfig().removeImpassableRoad(obj);
+			app.getRoutingConfig().removeImpassableRoad(obj);
 		}
 	}
 
@@ -141,12 +164,15 @@ public class AvoidSpecificRoads {
 	}
 
 	public void showDialog(@NonNull final MapActivity mapActivity) {
-		AlertDialog.Builder bld = new AlertDialog.Builder(mapActivity);
+		boolean nightMode = app.getDaynightHelper().isNightModeForMapControls();
+		Context themedContext = UiUtilities.getThemedContext(mapActivity, nightMode);
+
+		AlertDialog.Builder bld = new AlertDialog.Builder(themedContext);
 		bld.setTitle(R.string.impassable_road);
 		if (impassableRoads.isEmpty()) {
 			bld.setMessage(R.string.avoid_roads_msg);
 		} else {
-			final ArrayAdapter<LatLon> listAdapter = createAdapter(mapActivity);
+			final ArrayAdapter<LatLon> listAdapter = createAdapter(mapActivity, nightMode);
 			bld.setAdapter(listAdapter, new DialogInterface.OnClickListener() {
 				@Override
 				public void onClick(DialogInterface dialog, int which) {
@@ -169,7 +195,7 @@ public class AvoidSpecificRoads {
 		bld.show();
 	}
 
-	private void selectFromMap(final MapActivity mapActivity) {
+	public void selectFromMap(final MapActivity mapActivity) {
 		ContextMenuLayer cm = mapActivity.getMapLayers().getContextMenuLayer();
 		cm.setSelectOnMap(new CallbackWithObject<LatLon>() {
 			@Override
@@ -237,7 +263,7 @@ public class AvoidSpecificRoads {
 					final LatLon oldLoc = getLocation(currentObject);
 					app.getSettings().moveImpassableRoad(oldLoc, newLoc);
 					impassableRoads.remove(oldLoc);
-					app.getDefaultRoutingConfig().removeImpassableRoad(currentObject);
+					app.getRoutingConfig().removeImpassableRoad(currentObject);
 					addImpassableRoadInternal(object, ll, showDialog, activity, newLoc);
 
 					if (callback != null) {
@@ -259,7 +285,7 @@ public class AvoidSpecificRoads {
 										   boolean showDialog,
 										   @Nullable MapActivity activity,
 										   @NonNull LatLon loc) {
-		if (app.getDefaultRoutingConfig().addImpassableRoad(object, ll)) {
+		if (app.getRoutingConfig().addImpassableRoad(object, ll)) {
 			impassableRoads.put(loc, object);
 		} else {
 			LatLon location = getLocation(object);
@@ -288,7 +314,7 @@ public class AvoidSpecificRoads {
 	}
 
 	public LatLon getLocation(RouteDataObject object) {
-		Location location = app.getDefaultRoutingConfig().getImpassableRoadLocations().get(object.getId());
+		Location location = app.getRoutingConfig().getImpassableRoadLocations().get(object.getId());
 		return location == null ? null : new LatLon(location.getLatitude(), location.getLongitude());
 	}
 
