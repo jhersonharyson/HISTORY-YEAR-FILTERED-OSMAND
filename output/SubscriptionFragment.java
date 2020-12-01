@@ -2,11 +2,8 @@ package net.osmand.plus.liveupdates;
 
 import android.app.Activity;
 import android.app.ProgressDialog;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
-import android.support.v7.widget.AppCompatCheckBox;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -19,10 +16,15 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.widget.AppCompatCheckBox;
+import androidx.fragment.app.Fragment;
+
 import net.osmand.AndroidNetworkUtils;
 import net.osmand.AndroidUtils;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.OsmandInAppPurchaseActivity;
 import net.osmand.plus.base.BaseOsmAndDialogFragment;
@@ -97,7 +99,7 @@ public class SubscriptionFragment extends BaseOsmAndDialogFragment implements In
 	@Override
 	public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
 							 Bundle savedInstanceState) {
-
+		OsmandApplication app = getMyApplication();
 		String userName = settings.BILLING_USER_NAME.get();
 		String email = settings.BILLING_USER_EMAIL.get();
 		String countryDownloadName = settings.BILLING_USER_COUNTRY_DOWNLOAD_NAME.get();
@@ -121,7 +123,8 @@ public class SubscriptionFragment extends BaseOsmAndDialogFragment implements In
 
 		View view = inflater.inflate(R.layout.subscription_fragment, container, false);
 		ImageButton closeButton = (ImageButton) view.findViewById(R.id.closeButton);
-		closeButton.setImageDrawable(getMyApplication().getUIUtilities().getIcon(R.drawable.ic_action_mode_back));
+		Drawable icBack = app.getUIUtilities().getIcon(AndroidUtils.getNavigationIconResId(app));
+		closeButton.setImageDrawable(icBack);
 		closeButton.setOnClickListener(new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -247,7 +250,7 @@ public class SubscriptionFragment extends BaseOsmAndDialogFragment implements In
 			}
 		});
 
-		setThemedDrawable((ImageView) view.findViewById(R.id.userNameIcon), R.drawable.ic_person);
+		setThemedDrawable((ImageView) view.findViewById(R.id.userNameIcon), R.drawable.ic_action_user);
 		setThemedDrawable((ImageView) view.findViewById(R.id.emailIcon), R.drawable.ic_action_message);
 		setThemedDrawable((ImageView) view.findViewById(R.id.countryIcon), R.drawable.ic_world_globe_dark);
 		selectCountryEdit.setCompoundDrawablesWithIntrinsicBounds(
@@ -303,7 +306,7 @@ public class SubscriptionFragment extends BaseOsmAndDialogFragment implements In
 
 	@Override
 	public void onItemPurchased(String sku, boolean active) {
-		dismiss();
+		dismissAllowingStateLoss();
 	}
 
 	@Override

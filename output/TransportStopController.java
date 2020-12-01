@@ -1,7 +1,7 @@
 package net.osmand.plus.mapcontextmenu.controllers;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import net.osmand.data.Amenity;
 import net.osmand.data.LatLon;
@@ -16,7 +16,6 @@ import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.mapcontextmenu.MenuController;
 import net.osmand.plus.mapcontextmenu.builders.TransportStopMenuBuilder;
-import net.osmand.plus.resources.TransportIndexRepository;
 import net.osmand.plus.transport.TransportStopRoute;
 import net.osmand.plus.transport.TransportStopType;
 import net.osmand.util.Algorithms;
@@ -24,7 +23,6 @@ import net.osmand.util.MapUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -161,7 +159,7 @@ public class TransportStopController extends MenuController {
 
 	private void addTransportStopRoutes(OsmandApplication app, List<TransportStop> stops, List<TransportStopRoute> routes, boolean useEnglishNames) {
 		for (TransportStop tstop : stops) {
-			if (tstop.hasReferencesToRoutesMap()) {
+			if (!tstop.isDeleted()) {
 				addRoutes(app, routes, useEnglishNames, tstop, transportStop, (int) MapUtils.getDistance(tstop.getLocation(), transportStop.getLocation()));
 			}
 		}
@@ -233,9 +231,11 @@ public class TransportStopController extends MenuController {
 			stopAggregated = new TransportStopAggregated();
 			stopAggregated.setAmenity(amenity);
 			TransportStop nearestStop = null;
+			String amenityName = amenity.getName().toLowerCase();
 			for (TransportStop stop : transportStops) {
 				stop.setTransportStopAggregated(stopAggregated);
-				if ((stop.getName().startsWith(amenity.getName())
+				String stopName = stop.getName().toLowerCase();
+				if (((stopName.contains(amenityName) || amenityName.contains(stopName))
 						&& (nearestStop == null
 						|| nearestStop.getLocation().equals(stop.getLocation())))
 						|| stop.getLocation().equals(loc)) {

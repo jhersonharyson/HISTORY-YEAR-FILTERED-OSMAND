@@ -1,12 +1,9 @@
 package net.osmand.plus.mapcontextmenu.other;
 
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.FragmentActivity;
-import android.support.v4.app.FragmentManager;
-import android.support.v7.view.ContextThemeWrapper;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -15,18 +12,33 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.FragmentActivity;
+import androidx.fragment.app.FragmentManager;
+
 import net.osmand.AndroidUtils;
+import net.osmand.Location;
+import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
+import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.base.BaseOsmAndFragment;
 import net.osmand.plus.helpers.AndroidUiHelper;
+import net.osmand.plus.mapcontextmenu.MapContextMenu;
+import net.osmand.util.MapUtils;
 
-public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
+public class TrackDetailsMenuFragment extends BaseOsmAndFragment implements OsmAndLocationListener {
+
 	public static final String TAG = "TrackDetailsMenuFragment";
 
 	private TrackDetailsMenu menu;
 	private View mainView;
-	private boolean paused = true;
+	private boolean nightMode;
+
+	private boolean locationUpdateStarted;
 
 	@Nullable
 	private MapActivity getMapActivity() {
@@ -39,14 +51,34 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 	}
 
 	@Override
+	public void onCreate(@Nullable Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		final MapActivity mapActivity = requireMapActivity();
+		menu = mapActivity.getTrackDetailsMenu();
+
+		mapActivity.getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+			public void handleOnBackPressed() {
+				if (menu.isVisible()) {
+					menu.hide(true);
+
+					MapContextMenu contextMenu = mapActivity.getContextMenu();
+					if (contextMenu.isActive() && contextMenu.getPointDescription() != null
+							&& contextMenu.getPointDescription().isGpxPoint()) {
+						contextMenu.show();
+					} else {
+						mapActivity.launchPrevActivityIntent();
+					}
+				}
+			}
+		});
+	}
+
+	@Override
 	public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
 							 Bundle savedInstanceState) {
 		MapActivity mapActivity = requireMapActivity();
-		menu = mapActivity.getTrackDetailsMenu();
-		boolean nightMode = mapActivity.getMyApplication().getDaynightHelper().isNightModeForMapControls();
-		ContextThemeWrapper context =
-				new ContextThemeWrapper(mapActivity, !nightMode ? R.style.OsmandLightTheme : R.style.OsmandDarkTheme);
-		View view = LayoutInflater.from(context).inflate(R.layout.track_details, container, false);
+		nightMode = mapActivity.getMyApplication().getDaynightHelper().isNightModeForMapControls();
+		View view = UiUtilities.getInflater(mapActivity, nightMode).inflate(R.layout.track_details, container, false);
 		if (!AndroidUiHelper.isOrientationPortrait(mapActivity)) {
 			AndroidUtils.addStatusBarPadding21v(mapActivity, view);
 		}
@@ -87,14 +119,20 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 			});
 		}
 
-		updateInfo();
+		MapContextMenu contextMenu = mapActivity.getContextMenu();
+		final boolean forceFitTrackOnMap;
+		if (contextMenu.isActive()) {
+			forceFitTrackOnMap = !(contextMenu.getPointDescription() != null && contextMenu.getPointDescription().isGpxPoint());
+		} else {
+			forceFitTrackOnMap = true;
+		}
+		updateInfo(forceFitTrackOnMap);
 
 		ViewTreeObserver vto = mainView.getViewTreeObserver();
 		vto.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
 
 			@Override
 			public void onGlobalLayout() {
-
 				ViewTreeObserver obs = mainView.getViewTreeObserver();
 				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
 					obs.removeOnGlobalLayoutListener(this);
@@ -102,7 +140,7 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 					obs.removeGlobalOnLayoutListener(this);
 				}
 				if (getMapActivity() != null) {
-					updateInfo();
+					updateInfo(forceFitTrackOnMap);
 				}
 			}
 		});
@@ -118,13 +156,52 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 		} else {
 			menu.onShow();
 		}
-		paused = false;
+		startLocationUpdate();
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			mapActivity.getMapViewTrackingUtilities().setDetailsMenu(menu);
+		}
 	}
 
 	@Override
 	public void onPause() {
 		super.onPause();
-		paused = true;
+		stopLocationUpdate();
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			mapActivity.getMapViewTrackingUtilities().setDetailsMenu(menu);
+		}
+	}
+
+	private void startLocationUpdate() {
+		OsmandApplication app = getMyApplication();
+		if (app != null && !locationUpdateStarted) {
+			locationUpdateStarted = true;
+			app.getLocationProvider().addLocationListener(this);
+		}
+	}
+
+	private void stopLocationUpdate() {
+		OsmandApplication app = getMyApplication();
+		if (app != null && locationUpdateStarted) {
+			locationUpdateStarted = false;
+			app.getLocationProvider().removeLocationListener(this);
+		}
+	}
+
+	@Override
+	public void updateLocation(final Location location) {
+		if (location != null && !MapUtils.areLatLonEqual(menu.getMyLocation(), location)) {
+			MapActivity mapActivity = getMapActivity();
+			if (mapActivity != null && mapActivity.getMapViewTrackingUtilities().isMapLinkedToLocation()) {
+				mapActivity.getMyApplication().runInUIThread(new Runnable() {
+					@Override
+					public void run() {
+						menu.updateMyLocation(mainView, location);
+					}
+				});
+			}
+		}
 	}
 
 	@Override
@@ -138,10 +215,6 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 	@Override
 	public int getStatusBarColorId() {
 		return R.color.status_bar_transparent_gradient;
-	}
-
-	public boolean isPaused() {
-		return paused;
 	}
 
 	public int getHeight() {
@@ -161,7 +234,11 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 	}
 
 	public void updateInfo() {
-		menu.updateInfo(mainView);
+		updateInfo(true);
+	}
+
+	public void updateInfo(boolean forceFitTrackOnMap) {
+		menu.updateInfo(mainView, forceFitTrackOnMap);
 		applyDayNightMode();
 	}
 
@@ -189,11 +266,13 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 		if (ctx != null) {
 			boolean portraitMode = AndroidUiHelper.isOrientationPortrait(ctx);
 			boolean landscapeLayout = !portraitMode;
-			boolean nightMode = ctx.getMyApplication().getDaynightHelper().isNightModeForMapControls();
 			if (!landscapeLayout) {
 				AndroidUtils.setBackground(ctx, mainView, nightMode, R.drawable.bg_bottom_menu_light, R.drawable.bg_bottom_menu_dark);
 			} else {
-				AndroidUtils.setBackground(ctx, mainView, nightMode, R.drawable.bg_left_menu_light, R.drawable.bg_left_menu_dark);
+				final TypedValue typedValueAttr = new TypedValue();
+				int bgAttrId = AndroidUtils.isLayoutRtl(ctx) ? R.attr.right_menu_view_bg : R.attr.left_menu_view_bg;
+				ctx.getTheme().resolveAttribute(bgAttrId, typedValueAttr, true);
+				mainView.setBackgroundResource(typedValueAttr.resourceId);
 			}
 
 			AndroidUtils.setTextPrimaryColor(ctx, (TextView) mainView.findViewById(R.id.y_axis_title), nightMode);
@@ -206,7 +285,8 @@ public class TrackDetailsMenuFragment extends BaseOsmAndFragment {
 
 			ImageButton backButton = (ImageButton) mainView.findViewById(R.id.top_bar_back_button);
 			if (backButton != null) {
-				backButton.setImageDrawable(getIcon(R.drawable.ic_arrow_back, R.color.color_white));
+				Drawable icBack = getIcon(AndroidUtils.getNavigationIconResId(ctx), R.color.color_white);
+				backButton.setImageDrawable(icBack);
 			}
 		}
 	}

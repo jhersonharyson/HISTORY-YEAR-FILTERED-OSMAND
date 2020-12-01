@@ -4,12 +4,13 @@ import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
 import android.util.Pair;
 import android.view.View;
 import android.widget.LinearLayout;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
 
 import net.osmand.CallbackWithObject;
 import net.osmand.GPXUtilities.GPXFile;
@@ -21,11 +22,11 @@ import net.osmand.data.FavouritePoint;
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
 import net.osmand.data.TransportStop;
-import net.osmand.plus.ApplicationMode;
+import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.plus.ContextMenuAdapter;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
-import net.osmand.plus.MapMarkersHelper.MapMarker;
-import net.osmand.plus.MapMarkersHelper.MapMarkerChangedListener;
+import net.osmand.plus.mapmarkers.MapMarker;
+import net.osmand.plus.mapmarkers.MapMarkersHelper.MapMarkerChangedListener;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.R;
@@ -46,10 +47,11 @@ import net.osmand.plus.mapcontextmenu.editors.RtePtEditor;
 import net.osmand.plus.mapcontextmenu.editors.WptPtEditor;
 import net.osmand.plus.mapcontextmenu.other.MapMultiSelectionMenu;
 import net.osmand.plus.mapcontextmenu.other.ShareMenu;
+import net.osmand.plus.mapcontextmenu.AdditionalActionsBottomSheetDialogFragment.ContextMenuItemClickListener;
 import net.osmand.plus.monitoring.OsmandMonitoringPlugin;
 import net.osmand.plus.routing.RoutingHelper;
 import net.osmand.plus.transport.TransportStopRoute;
-import net.osmand.plus.views.ContextMenuLayer;
+import net.osmand.plus.views.layers.ContextMenuLayer;
 import net.osmand.plus.views.OsmandMapLayer;
 import net.osmand.plus.views.mapwidgets.MapInfoWidgetsFactory.TopToolbarController;
 import net.osmand.plus.views.mapwidgets.MapInfoWidgetsFactory.TopToolbarControllerType;
@@ -906,18 +908,18 @@ public class MapContextMenu extends MenuTitleController implements StateChangedL
 			favActionIconId = menuController.getFavActionIconId();
 			waypointActionIconId = menuController.getWaypointActionIconId();
 		} else {
-			favActionIconId = R.drawable.map_action_fav_dark;
-			waypointActionIconId = R.drawable.map_action_flag_dark;
+			favActionIconId = R.drawable.ic_action_favorite_stroke;
+			waypointActionIconId = R.drawable.ic_action_flag_stroke;
 		}
 	}
 
 	public int getFabIconId() {
-		int res = R.drawable.map_directions;
+		int res = R.drawable.ic_action_gdirections_dark;
 		MapActivity mapActivity = getMapActivity();
 		if (mapActivity != null) {
 			RoutingHelper routingHelper = mapActivity.getMyApplication().getRoutingHelper();
 			if (routingHelper.isFollowingMode() || routingHelper.isRoutePlanningMode()) {
-				res = R.drawable.map_action_waypoint;
+				res = R.drawable.ic_action_waypoint;
 			}
 		}
 		return res;
@@ -951,7 +953,7 @@ public class MapContextMenu extends MenuTitleController implements StateChangedL
 		MapActivity mapActivity = getMapActivity();
 		if (mapActivity != null) {
 			if (navigateInPedestrianMode()) {
-				mapActivity.getMyApplication().getSettings().APPLICATION_MODE.set(ApplicationMode.PEDESTRIAN);
+				mapActivity.getMyApplication().getSettings().setApplicationMode(ApplicationMode.PEDESTRIAN, false);
 			}
 			mapActivity.getMapLayers().getMapControlsLayer().navigateButton();
 		}
@@ -1040,7 +1042,7 @@ public class MapContextMenu extends MenuTitleController implements StateChangedL
 					}
 					FavoritePointEditor favoritePointEditor = getFavoritePointEditor();
 					if (favoritePointEditor != null) {
-						favoritePointEditor.add(getLatLon(), title, originObjectName);
+						favoritePointEditor.add(getLatLon(), title, getStreetStr(), originObjectName);
 					}
 				}
 			});
@@ -1060,16 +1062,31 @@ public class MapContextMenu extends MenuTitleController implements StateChangedL
 		}
 	}
 
-	public void buttonMorePressed() {
+	public ContextMenuAdapter getActionsContextMenuAdapter(boolean configure) {
 		MapActivity mapActivity = getMapActivity();
+		final ContextMenuAdapter menuAdapter = new ContextMenuAdapter(getMyApplication());
 		if (mapActivity != null) {
-			final ContextMenuAdapter menuAdapter = new ContextMenuAdapter();
 			LatLon latLon = getLatLon();
 			for (OsmandMapLayer layer : mapActivity.getMapView().getLayers()) {
 				layer.populateObjectContextMenu(latLon, getObject(), menuAdapter, mapActivity);
 			}
+			mapActivity.getMapActions().addActionsToAdapter(configure ? 0 : latLon.getLatitude(), configure ? 0 : latLon.getLongitude(), menuAdapter, configure ? null : getObject(), configure);		}
+		return menuAdapter;
+	}
 
-			mapActivity.getMapActions().contextMenuPoint(latLon.getLatitude(), latLon.getLongitude(), menuAdapter, getObject());
+	public ContextMenuItemClickListener getContextMenuItemClickListener(ContextMenuAdapter menuAdapter) {
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			LatLon latLon = getLatLon();
+			return mapActivity.getMapActions().getContextMenuItemClickListener(latLon.getLatitude(), latLon.getLongitude(), menuAdapter);
+		}
+		return null;
+	}
+
+	public void showAdditionalActionsFragment(final ContextMenuAdapter adapter, ContextMenuItemClickListener listener) {
+		MapActivity mapActivity = getMapActivity();
+		if (mapActivity != null) {
+			mapActivity.getMapActions().showAdditionalActionsFragment(adapter, listener);
 		}
 	}
 
@@ -1456,7 +1473,7 @@ public class MapContextMenu extends MenuTitleController implements StateChangedL
 		return menuController != null && menuController.displayDistanceDirection();
 	}
 
-	public String getSubtypeStr() {
+	public CharSequence getSubtypeStr() {
 		MenuController menuController = getMenuController();
 		if (menuController != null) {
 			return menuController.getSubtypeStr();

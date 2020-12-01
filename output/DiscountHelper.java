@@ -11,21 +11,24 @@ import android.graphics.drawable.LayerDrawable;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.provider.Settings.Secure;
-import android.support.annotation.ColorInt;
-import android.support.annotation.NonNull;
-import android.support.v4.content.ContextCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 
+import androidx.annotation.ColorInt;
+import androidx.annotation.NonNull;
+import androidx.appcompat.content.res.AppCompatResources;
+
 import net.osmand.AndroidNetworkUtils;
+import net.osmand.PlatformUtil;
 import net.osmand.osm.AbstractPoiType;
 import net.osmand.osm.MapPoiTypes;
 import net.osmand.osm.PoiCategory;
 import net.osmand.osm.PoiType;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.activities.OsmandInAppPurchaseActivity;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.Version;
 import net.osmand.plus.activities.MapActivity;
@@ -55,7 +58,7 @@ import java.util.Map;
 public class DiscountHelper {
 
 	private static final String TAG = "DiscountHelper";
-	//private static final String DISCOUNT_JSON = "discount.json";
+	private static final org.apache.commons.logging.Log LOG = PlatformUtil.getLog(DiscountHelper.class);
 
 	private static long mLastCheckTime;
 	private static ControllerData mData;
@@ -80,7 +83,7 @@ public class DiscountHelper {
 	public static void checkAndDisplay(final MapActivity mapActivity) {
 		OsmandApplication app = mapActivity.getMyApplication();
 		OsmandSettings settings = app.getSettings();
-		if (settings.DO_NOT_SHOW_STARTUP_MESSAGES.get() || !settings.INAPPS_READ.get() || Version.isHuawei(app)) {
+		if (settings.DO_NOT_SHOW_STARTUP_MESSAGES.get() || !settings.INAPPS_READ.get()) {
 			return;
 		}
 		if (mBannerVisible) {
@@ -245,7 +248,7 @@ public class DiscountHelper {
 		int iconId = mapActivity.getResources().getIdentifier(data.iconId, "drawable", mapActivity.getMyApplication().getPackageName());
 		final DiscountBarController toolbarController = new DiscountBarController();
 		if (data.bgColor != -1) {
-			LayerDrawable bgLand = (LayerDrawable) ContextCompat.getDrawable(mapActivity, R.drawable.discount_bar_bg_land);
+			LayerDrawable bgLand = (LayerDrawable) AppCompatResources.getDrawable(mapActivity, R.drawable.discount_bar_bg_land);
 			if (bgLand != null) {
 				((GradientDrawable) bgLand.findDrawableByLayerId(R.id.color_bg)).setColor(data.bgColor);
 			}
@@ -311,7 +314,11 @@ public class DiscountHelper {
 			if (purchaseHelper != null) {
 				if (url.contains(purchaseHelper.getFullVersion().getSku())) {
 					app.logEvent("in_app_purchase_redirect");
-					purchaseHelper.purchaseFullVersion(mapActivity);
+					try {
+						purchaseHelper.purchaseFullVersion(mapActivity);
+					} catch (UnsupportedOperationException e) {
+						LOG.error("purchaseFullVersion is not supported", e);
+					}
 				} else {
 					for (InAppPurchase p : purchaseHelper.getLiveUpdates().getAllSubscriptions()) {
 						if (url.contains(p.getSku())) {

@@ -1,8 +1,8 @@
 package net.osmand.plus;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.util.LongSparseArray;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.collection.LongSparseArray;
 
 import net.osmand.Location;
 import net.osmand.PlatformUtil;
@@ -14,6 +14,7 @@ import net.osmand.binary.GeocodingUtilities.GeocodingResult;
 import net.osmand.binary.RouteDataObject;
 import net.osmand.plus.resources.ResourceManager.BinaryMapReaderResource;
 import net.osmand.plus.resources.ResourceManager.BinaryMapReaderResourceType;
+import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.router.GeneralRouter.GeneralRouterProfile;
 import net.osmand.router.RoutePlannerFrontEnd;
 import net.osmand.router.RoutingConfiguration;
@@ -24,7 +25,6 @@ import org.apache.commons.logging.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -137,11 +137,11 @@ public class CurrentPositionHelper {
 			for (BinaryMapReaderResource rep : checkReaders) {
 				rs[i++] = rep.getReader(BinaryMapReaderResourceType.STREET_LOOKUP);
 			}
-			RoutingConfiguration cfg = app.getRoutingConfig().build(p, 10,
+			RoutingConfiguration cfg = app.getRoutingConfigForMode(am).build(p, 10,
 					new HashMap<String, String>());
 			cfg.routeCalculationTime = System.currentTimeMillis();
 			ctx = new RoutePlannerFrontEnd().buildRoutingContext(cfg, null, rs);
-			RoutingConfiguration defCfg = app.getRoutingConfig().build("geocoding", 10,
+			RoutingConfiguration defCfg = app.getDefaultRoutingConfig().build("geocoding", 10,
 					new HashMap<String, String>());
 			defCtx = new RoutePlannerFrontEnd().buildRoutingContext(defCfg, null, rs);
 		} else {
@@ -153,7 +153,7 @@ public class CurrentPositionHelper {
 
 	// single synchronized method
 	private synchronized void processGeocoding(@NonNull Location loc,
-											   @Nullable ResultMatcher<GeocodingResult> geoCoding,
+											   @Nullable final ResultMatcher<GeocodingResult> geoCoding,
 											   boolean storeFound,
 											   boolean allowEmptyNames,
 											   @Nullable final ResultMatcher<RouteDataObject> result,
@@ -163,6 +163,21 @@ public class CurrentPositionHelper {
 											   boolean cancelPreviousSearch) {
 
 		if (cancelPreviousSearch && request != requestNumber.get()) {
+			if (geoCoding != null) {
+				app.runInUIThread(new Runnable() {
+					@Override
+					public void run() {
+						geoCoding.publish(null);
+					}
+				});
+			} else if (result != null) {
+				app.runInUIThread(new Runnable() {
+					@Override
+					public void run() {
+						result.publish(null);
+					}
+				});
+			}
 			return;
 		}
 
@@ -171,9 +186,18 @@ public class CurrentPositionHelper {
 		if (storeFound) {
 			lastAskedLocation = loc;
 			lastFound = gr == null || gr.isEmpty() ? null : gr.get(0).point.getRoad();
-		} else if(geoCoding != null) {
-			justifyResult(gr, geoCoding);
-		} else if(result != null) {
+		} else if (geoCoding != null) {
+			try {
+				justifyResult(gr, geoCoding);
+			} catch (Exception e) {
+				app.runInUIThread(new Runnable() {
+						@Override
+						public void run() {
+							geoCoding.publish(null);
+						}
+					});
+			}
+		} else if (result != null) {
 			app.runInUIThread(new Runnable() {
 				@Override
 				public void run() {
@@ -219,10 +243,13 @@ public class CurrentPositionHelper {
 		int y31 = MapUtils.get31TileNumberY(lat);
 		int x31 = MapUtils.get31TileNumberX(lon);
 		for(BinaryMapReaderResource r : app.getResourceManager().getFileReaders()) {
-			if(!r.isClosed() && r.getShallowReader().containsRouteData(x31, y31, x31, y31, 15)) {
-				if(!res.contains(r)) {
-					res = new ArrayList<>(res);
-					res.add(r);
+			if (!r.isClosed()) {
+				BinaryMapIndexReader shallowReader = r.getShallowReader();
+				if (shallowReader != null && shallowReader.containsRouteData(x31, y31, x31, y31, 15)) {
+					if (!res.contains(r)) {
+						res = new ArrayList<>(res);
+						res.add(r);
+					}
 				}
 			}
 		}
@@ -233,6 +260,7 @@ public class CurrentPositionHelper {
 		List<GeocodingResult> complete = new ArrayList<>();
 		double minBuildingDistance = 0;
 		if (res != null) {
+			GeocodingUtilities gu = new GeocodingUtilities();
 			for (GeocodingResult r : res) {
 				BinaryMapIndexReader foundRepo = null;
 				List<BinaryMapReaderResource> rts  = usedReaders;
@@ -241,10 +269,12 @@ public class CurrentPositionHelper {
 						continue;
 					}
 					BinaryMapIndexReader reader = rt.getReader(BinaryMapReaderResourceType.STREET_LOOKUP);
-					for (RouteRegion rb : reader.getRoutingIndexes()) {
-						if (r.regionFP == rb.getFilePointer() && r.regionLen == rb.getLength()) {
-							foundRepo = reader;
-							break;
+					if (reader != null) {
+						for (RouteRegion rb : reader.getRoutingIndexes()) {
+							if (r.regionFP == rb.getFilePointer() && r.regionLen == rb.getLength()) {
+								foundRepo = reader;
+								break;
+							}
 						}
 					}
 				}
@@ -253,7 +283,7 @@ public class CurrentPositionHelper {
 				} else if (foundRepo != null) {
 					List<GeocodingResult> justified = null;
 					try {
-						justified = new GeocodingUtilities().justifyReverseGeocodingSearch(r, foundRepo,
+						justified = gu.justifyReverseGeocodingSearch(r, foundRepo,
 								minBuildingDistance, result);
 					} catch (IOException e) {
 						log.error("Exception happened during reverse geocoding", e);
@@ -271,6 +301,7 @@ public class CurrentPositionHelper {
 					complete.add(r);
 				}
 			}
+			gu.filterDuplicateRegionResults(complete);
 		}
 
 		if (result.isCancelled()) {
@@ -281,7 +312,7 @@ public class CurrentPositionHelper {
 			});
 			return;
 		}
-		Collections.sort(complete, GeocodingUtilities.DISTANCE_COMPARATOR);
+//		Collections.sort(complete, GeocodingUtilities.DISTANCE_COMPARATOR);
 //		for(GeocodingResult rt : complete) {
 //			System.out.println(rt.toString());
 //		}

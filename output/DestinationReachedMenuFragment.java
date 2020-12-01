@@ -2,20 +2,22 @@ package net.osmand.plus.mapcontextmenu.other;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
-import android.support.v7.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageButton;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.view.ContextThemeWrapper;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+
 import net.osmand.AndroidUtils;
 import net.osmand.data.LatLon;
-import net.osmand.plus.ApplicationMode;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.ApplicationMode;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper;
 import net.osmand.plus.TargetPointsHelper.TargetPoint;
@@ -176,7 +178,7 @@ public class DestinationReachedMenuFragment extends Fragment {
 				}
 			}
 			OsmandSettings settings = mapActivity.getMyApplication().getSettings();
-			settings.APPLICATION_MODE.set(settings.DEFAULT_APPLICATION_MODE.get());
+			settings.setApplicationMode(settings.DEFAULT_APPLICATION_MODE.get());
 			mapActivity.getMapActions().stopNavigationWithoutConfirm();
 			dismissMenu();
 		}
@@ -203,8 +205,11 @@ public class DestinationReachedMenuFragment extends Fragment {
 
 	public void dismissMenu() {
 		MapActivity mapActivity = getMapActivity();
-		if (mapActivity != null && !mapActivity.isActivityDestroyed()) {
-			mapActivity.getSupportFragmentManager().popBackStack();
+		if (mapActivity != null) {
+			FragmentManager fragmentManager = mapActivity.getSupportFragmentManager();
+			if (!fragmentManager.isStateSaved()) {
+				fragmentManager.popBackStack();
+			}
 		}
 	}
 

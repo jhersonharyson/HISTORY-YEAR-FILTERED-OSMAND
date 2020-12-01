@@ -1,10 +1,6 @@
 package net.osmand.plus.mapcontextmenu.other;
 
 import android.content.DialogInterface;
-import android.content.Intent;
-import android.support.annotation.NonNull;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.widget.PopupMenu;
 import android.util.TypedValue;
 import android.view.MenuItem;
 import android.view.View;
@@ -17,18 +13,18 @@ import android.widget.CompoundButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.PopupMenu;
+
 import net.osmand.AndroidUtils;
 import net.osmand.CallbackWithObject;
-import net.osmand.plus.ApplicationMode;
+import net.osmand.GPXUtilities;
 import net.osmand.plus.ContextMenuAdapter;
 import net.osmand.plus.ContextMenuItem;
-import net.osmand.GPXUtilities;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.activities.SettingsBaseActivity;
-import net.osmand.plus.activities.SettingsNavigationActivity;
 import net.osmand.plus.helpers.FileNameTranslationHelper;
 import net.osmand.plus.helpers.GpxUiHelper;
 import net.osmand.plus.routepreparationmenu.RoutingOptionsHelper;
@@ -42,6 +38,8 @@ import net.osmand.plus.routepreparationmenu.RoutingOptionsHelper.OtherSettingsRo
 import net.osmand.plus.routepreparationmenu.RoutingOptionsHelper.VoiceGuidanceRoutingParameter;
 import net.osmand.plus.routing.RouteProvider;
 import net.osmand.plus.routing.RoutingHelper;
+import net.osmand.plus.settings.backend.ApplicationMode;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.router.GeneralRouter;
 
 import java.io.File;
@@ -73,7 +71,7 @@ public class RoutePreferencesMenu {
 				updateParameters();
 				return true;
 			}
-		});
+		}, routingHelper.getAppMode());
 	}
 
 	public OnItemClickListener getItemClickListener(final ArrayAdapter<?> listAdapter) {
@@ -83,7 +81,7 @@ public class RoutePreferencesMenu {
 				Object obj = listAdapter.getItem(item);
 				if (obj instanceof LocalRoutingParameterGroup) {
 					final LocalRoutingParameterGroup group = (LocalRoutingParameterGroup) obj;
-					final ContextMenuAdapter adapter = new ContextMenuAdapter();
+					final ContextMenuAdapter adapter = new ContextMenuAdapter(app);
 					int i = 0;
 					int selectedIndex = -1;
 					for (LocalRoutingParameter p : group.getRoutingParameters()) {
@@ -139,7 +137,7 @@ public class RoutePreferencesMenu {
 											LocalRoutingParameter rp = group.getRoutingParameters().get(i);
 											rp.setSelected(settings, i == position);
 										}
-										mapActivity.getRoutingHelper().recalculateRouteDueToSettingsChange();
+										mapActivity.getRoutingHelper().onSettingsChanged(true);
 										updateParameters();
 									}
 								}
@@ -147,11 +145,6 @@ public class RoutePreferencesMenu {
 							.setNegativeButton(R.string.shared_string_cancel, null);
 
 					builder.create().show();
-				} else if (obj instanceof OtherSettingsRoutingParameter) {
-					final Intent settings = new Intent(mapActivity, SettingsNavigationActivity.class);
-					settings.putExtra(SettingsNavigationActivity.INTENT_SKIP_DIALOG, true);
-					settings.putExtra(SettingsBaseActivity.INTENT_APP_MODE, routingHelper.getAppMode().getStringKey());
-					mapActivity.startActivity(settings);
 				} else if (obj instanceof MuteSoundRoutingParameter) {
 					final CompoundButton btn = (CompoundButton) view.findViewById(R.id.toggle_item);
 					btn.performClick();
@@ -373,7 +366,7 @@ public class RoutePreferencesMenu {
 				app.getTargetPointsHelper().updateRouteAndRefresh(true);
 				updateSpinnerItems(gpxSpinner);
 				updateParameters();
-				mapActivity.getRoutingHelper().recalculateRouteDueToSettingsChange();
+				mapActivity.getRoutingHelper().onSettingsChanged(true);
 				return true;
 			}
 		}, app.getDaynightHelper().isNightModeForMapControls());
@@ -396,7 +389,7 @@ public class RoutePreferencesMenu {
 				if (mapActivity.getRoutingHelper().getCurrentGPXRoute() != null) {
 					mapActivity.getRoutingHelper().setGpxParams(null);
 					settings.FOLLOW_THE_GPX_ROUTE.set(null);
-					mapActivity.getRoutingHelper().recalculateRouteDueToSettingsChange();
+					mapActivity.getRoutingHelper().onSettingsChanged(true);
 				}
 				updateParameters();
 				return true;

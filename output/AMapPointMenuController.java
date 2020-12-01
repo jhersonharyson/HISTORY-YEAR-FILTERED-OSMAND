@@ -5,10 +5,11 @@ import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.util.Pair;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import net.osmand.AndroidUtils;
 import net.osmand.aidl.AidlContextMenuButtonWrapper;
@@ -147,7 +148,7 @@ public class AMapPointMenuController extends MenuController {
 
 	@NonNull
 	@Override
-	public String getSubtypeStr() {
+	public CharSequence getSubtypeStr() {
 		MapActivity activity = getMapActivity();
 		if (activity != null) {
 			float bearing = getPointBearing();
@@ -200,8 +201,8 @@ public class AMapPointMenuController extends MenuController {
 		OsmandApplication app = mapActivity.getMyApplication();
 		titleButtonController.caption = contextMenuButton.getLeftTextCaption();
 		titleButtonController.rightTextCaption = contextMenuButton.getRightTextCaption();
-		titleButtonController.leftIconId = AndroidUtils.getDrawableId(app, contextMenuButton.getLeftIconName());
-		titleButtonController.rightIconId = AndroidUtils.getDrawableId(app, contextMenuButton.getRightIconName());
+		titleButtonController.startIconId = AndroidUtils.getDrawableId(app, contextMenuButton.getLeftIconName());
+		titleButtonController.endIconId = AndroidUtils.getDrawableId(app, contextMenuButton.getRightIconName());
 		titleButtonController.enabled = contextMenuButton.isEnabled();
 		titleButtonController.tintIcon = contextMenuButton.isTintIcon();
 
@@ -217,7 +218,7 @@ public class AMapPointMenuController extends MenuController {
 			}
 		}
 		if (!TextUtils.isEmpty(point.getShortName())) {
-			return R.drawable.ic_small_group;
+			return R.drawable.ic_action_group_name_16;
 		}
 		return NO_ICON;
 	}

@@ -5,10 +5,6 @@ import android.app.DatePickerDialog;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.AppCompatImageView;
-import android.support.v7.widget.AppCompatTextView;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.ContextThemeWrapper;
@@ -26,9 +22,14 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.widget.AppCompatImageView;
+import androidx.appcompat.widget.AppCompatTextView;
+import androidx.core.content.ContextCompat;
+
 import net.osmand.map.TileSourceManager;
 import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
@@ -69,7 +70,7 @@ public class MapillaryFiltersFragment extends BaseOsmAndFragment {
 
         final View toggleRow = view.findViewById(R.id.toggle_row);
         final boolean selected = settings.SHOW_MAPILLARY.get();
-        final int toggleActionStringId = selected ? R.string.shared_string_enabled : R.string.shared_string_disabled;
+        final int toggleActionStringId = selected ? R.string.shared_string_on : R.string.shared_string_off;
         int toggleIconColorId;
         int toggleIconId;
         if (selected) {
@@ -117,12 +118,12 @@ public class MapillaryFiltersFragment extends BaseOsmAndFragment {
         final int colorRes = nightMode ? R.color.icon_color_default_dark : R.color.icon_color_default_light;
         ((AppCompatImageView) view.findViewById(R.id.mapillary_filters_user_icon)).setImageDrawable(getIcon(R.drawable.ic_action_user, colorRes));
         ((AppCompatImageView) view.findViewById(R.id.mapillary_filters_date_icon)).setImageDrawable(getIcon(R.drawable.ic_action_data, colorRes));
-        ((AppCompatImageView) view.findViewById(R.id.mapillary_filters_tile_cache_icon)).setImageDrawable(getIcon(R.drawable.ic_layer_top_dark, colorRes));
+        ((AppCompatImageView) view.findViewById(R.id.mapillary_filters_tile_cache_icon)).setImageDrawable(getIcon(R.drawable.ic_layer_top, colorRes));
 
         final DelayAutoCompleteTextView textView = (DelayAutoCompleteTextView) view.findViewById(R.id.auto_complete_text_view);
         textView.setAdapter(new MapillaryAutoCompleteAdapter(getContext(), R.layout.auto_complete_suggestion, getMyApplication()));
         String selectedUsername = settings.MAPILLARY_FILTER_USERNAME.get();
-        if (!selectedUsername.equals("") && settings.USE_MAPILLARY_FILTER.get()) {
+        if (!selectedUsername.isEmpty() && settings.USE_MAPILLARY_FILTER.get()) {
             textView.setText(selectedUsername);
             textView.setSelection(selectedUsername.length());
         }
@@ -260,16 +261,16 @@ public class MapillaryFiltersFragment extends BaseOsmAndFragment {
                 String dateFrom = dateFromEt.getText().toString();
                 String dateTo = dateToEt.getText().toString();
 
-                if (!settings.MAPILLARY_FILTER_USERNAME.get().equals("") || !dateFrom.equals("") || !dateTo.equals("") || settings.MAPILLARY_FILTER_PANO.get()) {
+                if (!settings.MAPILLARY_FILTER_USERNAME.get().isEmpty() || !dateFrom.isEmpty() || !dateTo.isEmpty() || settings.MAPILLARY_FILTER_PANO.get()) {
                     settings.USE_MAPILLARY_FILTER.set(true);
                 }
-                if (dateFrom.equals("")) {
+                if (dateFrom.isEmpty()) {
                     settings.MAPILLARY_FILTER_FROM_DATE.set(0L);
                 }
-                if (dateTo.equals("")) {
+                if (dateTo.isEmpty()) {
                     settings.MAPILLARY_FILTER_TO_DATE.set(0L);
                 }
-                if (!username.equals("") && settings.MAPILLARY_FILTER_USERNAME.get().equals("")) {
+                if (!username.isEmpty() && settings.MAPILLARY_FILTER_USERNAME.get().isEmpty()) {
                     view.findViewById(R.id.warning_linear_layout).setVisibility(View.VISIBLE);
                 } else {
                     mapActivity.getDashboard().hideDashboard();

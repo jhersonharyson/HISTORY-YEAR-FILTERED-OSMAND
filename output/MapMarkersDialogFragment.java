@@ -5,16 +5,6 @@ import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.design.widget.BottomNavigationView;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.FragmentPagerAdapter;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.Toolbar;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
@@ -23,16 +13,27 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentPagerAdapter;
+
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.snackbar.Snackbar;
+
 import net.osmand.AndroidUtils;
 import net.osmand.Location;
 import net.osmand.data.LatLon;
 import net.osmand.plus.LockableViewPager;
-import net.osmand.plus.MapMarkersHelper;
-import net.osmand.plus.MapMarkersHelper.MapMarkersSortByDef;
-import net.osmand.plus.MapMarkersHelper.OnGroupSyncedListener;
+import net.osmand.plus.mapmarkers.MapMarkersHelper.MapMarkersSortByDef;
+import net.osmand.plus.mapmarkers.MapMarkersHelper.OnGroupSyncedListener;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.TrackActivity;
 import net.osmand.plus.mapmarkers.CoordinateInputDialogFragment.OnPointsSavedListener;
@@ -40,7 +41,6 @@ import net.osmand.plus.mapmarkers.DirectionIndicationDialogFragment.DirectionInd
 import net.osmand.plus.mapmarkers.OptionsBottomSheetDialogFragment.MarkerOptionsFragmentListener;
 import net.osmand.plus.mapmarkers.OrderByBottomSheetDialogFragment.OrderByFragmentListener;
 import net.osmand.plus.mapmarkers.SaveAsTrackBottomSheetDialogFragment.MarkerSaveAsTrackFragmentListener;
-import net.osmand.plus.widgets.tools.BottomNavigationViewHelper;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,7 +49,7 @@ import java.util.List;
 import static net.osmand.plus.mapmarkers.OptionsBottomSheetDialogFragment.GROUPS_MARKERS_MENU;
 import static net.osmand.plus.mapmarkers.OptionsBottomSheetDialogFragment.HISTORY_MARKERS_MENU;
 
-public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragment implements OnGroupSyncedListener {
+public class MapMarkersDialogFragment extends DialogFragment implements OnGroupSyncedListener {
 
 	public static final String TAG = "MapMarkersDialogFragment";
 
@@ -77,7 +77,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		OsmandApplication app = getMyApplication();
-		lightTheme = app.getSettings().OSMAND_THEME.get() == OsmandSettings.OSMAND_LIGHT_THEME;
+		lightTheme = app.getSettings().isLightContent();
 		int themeId = lightTheme ? R.style.OsmandLightTheme : R.style.OsmandDarkTheme;
 		setStyle(STYLE_NO_FRAME, themeId);
 	}
@@ -149,7 +149,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		View mainView = inflater.inflate(R.layout.fragment_map_markers_dialog, container);
 
 		Toolbar toolbar = (Toolbar) mainView.findViewById(R.id.map_markers_toolbar);
-		Drawable icArrowBack = getMyApplication().getUIUtilities().getIcon(R.drawable.ic_arrow_back, 
+		Drawable icArrowBack = getMyApplication().getUIUtilities().getIcon(AndroidUtils.getNavigationIconResId(getContext()),
 				lightTheme ? R.color.active_buttons_and_links_text_light : R.color.active_buttons_and_links_text_dark);
 		toolbar.setNavigationIcon(icArrowBack);
 		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
@@ -170,7 +170,6 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		
 		TextView toolbarTitle = mainView.findViewById(R.id.map_markers_toolbar_title);
 		bottomNav = mainView.findViewById(R.id.map_markers_bottom_navigation);
-		BottomNavigationViewHelper.disableShiftMode(bottomNav);
 		toolbarTitle.setTextColor(ContextCompat.getColor(getContext(), lightTheme ? R.color.active_buttons_and_links_text_light : R.color.text_color_primary_dark));
 		bottomNav.setItemIconTintList(ContextCompat.getColorStateList(getContext(), lightTheme ? R.color.bottom_navigation_color_selector_light : R.color.bottom_navigation_color_selector_dark));
 		bottomNav.setItemTextColor(ContextCompat.getColorStateList(getContext(), lightTheme ? R.color.bottom_navigation_color_selector_light : R.color.bottom_navigation_color_selector_dark));
@@ -430,7 +429,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 			public void moveAllToHistoryOnClick() {
 				if (mapActivity != null) {
 					final MapMarkersHelper helper = mapActivity.getMyApplication().getMapMarkersHelper();
-					final List<MapMarkersHelper.MapMarker> markers = new ArrayList<>(helper.getMapMarkers());
+					final List<MapMarker> markers = new ArrayList<>(helper.getMapMarkers());
 					helper.moveAllActiveMarkersToHistory();
 					if (viewPager.getCurrentItem() == ACTIVE_MARKERS_POSITION) {
 						activeFragment.updateAdapter();
@@ -449,7 +448,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 									}
 								}
 							});
-					AndroidUtils.setSnackbarTextColor(snackbar, R.color.active_color_primary_dark);
+					UiUtilities.setupSnackbar(snackbar, !lightTheme);
 					snackbar.show();
 				}
 			}
@@ -482,7 +481,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 
 			@Override
 			public void saveGpx(final String fileName) {
-				final String gpxPath = mapActivity.getMyApplication().getMapMarkersHelper().generateGpx(fileName);
+				final String gpxPath = mapActivity.getMyApplication().getMapMarkersHelper().saveMarkersToFile(fileName);
 				snackbar = Snackbar.make(viewPager, String.format(getString(R.string.shared_string_file_is_saved), fileName) + ".", Snackbar.LENGTH_LONG)
 						.setAction(R.string.shared_string_show, new View.OnClickListener() {
 							@Override
@@ -494,7 +493,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 								startActivity(intent);
 							}
 						});
-				AndroidUtils.setSnackbarTextColor(snackbar, R.color.active_color_primary_dark);
+				UiUtilities.setupSnackbar(snackbar, !lightTheme);
 				snackbar.show();
 			}
 		};
@@ -550,7 +549,7 @@ public class MapMarkersDialogFragment extends android.support.v4.app.DialogFragm
 		private final List<Fragment> fragments;
 
 		MapMarkersViewPagerAdapter(FragmentManager fm) {
-			super(fm);
+			super(fm, BEHAVIOR_RESUME_ONLY_CURRENT_FRAGMENT);
 			fragments = Arrays.asList(activeFragment, groupsFragment, historyFragment);
 		}
 

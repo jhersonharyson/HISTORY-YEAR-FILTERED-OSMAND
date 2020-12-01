@@ -1,29 +1,32 @@
 package net.osmand.plus.mapmarkers.adapters;
 
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.design.widget.Snackbar;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
 import android.widget.ImageView;
 
-import net.osmand.AndroidUtils;
-import net.osmand.IndexConstants;
-import net.osmand.data.LatLon;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.snackbar.Snackbar;
+
 import net.osmand.GPXUtilities;
 import net.osmand.GPXUtilities.GPXFile;
+import net.osmand.IndexConstants;
+import net.osmand.data.LatLon;
 import net.osmand.plus.GpxSelectionHelper;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
-import net.osmand.plus.MapMarkersHelper;
-import net.osmand.plus.MapMarkersHelper.GroupHeader;
-import net.osmand.plus.MapMarkersHelper.MapMarker;
-import net.osmand.plus.MapMarkersHelper.MapMarkersGroup;
-import net.osmand.plus.MapMarkersHelper.ShowHideHistoryButton;
+import net.osmand.plus.mapmarkers.CategoriesSubHeader;
+import net.osmand.plus.mapmarkers.MapMarkersHelper;
+import net.osmand.plus.mapmarkers.GroupHeader;
+import net.osmand.plus.mapmarkers.MapMarker;
+import net.osmand.plus.mapmarkers.MapMarkersGroup;
+import net.osmand.plus.mapmarkers.ShowHideHistoryButton;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
@@ -33,7 +36,7 @@ import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.mapmarkers.SelectWptCategoriesBottomSheetDialogFragment;
 import net.osmand.plus.wikivoyage.article.WikivoyageArticleDialogFragment;
 import net.osmand.plus.wikivoyage.data.TravelArticle;
-import net.osmand.plus.wikivoyage.data.TravelDbHelper;
+import net.osmand.plus.wikivoyage.data.TravelHelper;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -142,7 +145,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 							items.add(markerMonth);
 							previousDateHeader = markerMonth;
 							monthsDisplayed += 1;
-						} else if (currentMonth - markerMonth >= 4 && previousDateHeader != THIS_YEAR_HEADER) {
+						} else if (currentMonth - markerMonth >= 4 && previousDateHeader != markerMonth && previousDateHeader != THIS_YEAR_HEADER) {
 							items.add(THIS_YEAR_HEADER);
 							previousDateHeader = THIS_YEAR_HEADER;
 						}
@@ -157,14 +160,14 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 				items.add(header);
 				if (!group.isDisabled()) {
 					if (group.getWptCategories() != null && !group.getWptCategories().isEmpty()) {
-						MapMarkersHelper.CategoriesSubHeader categoriesSubHeader = group.getCategoriesSubHeader();
+						CategoriesSubHeader categoriesSubHeader = group.getCategoriesSubHeader();
 						items.add(categoriesSubHeader);
 					}
-					TravelDbHelper travelDbHelper = mapActivity.getMyApplication().getTravelDbHelper();
-					if (travelDbHelper.getSelectedTravelBook() != null) {
-						List<TravelArticle> savedArticles = travelDbHelper.getLocalDataHelper().getSavedArticles();
+					TravelHelper travelHelper = mapActivity.getMyApplication().getTravelHelper();
+					if (travelHelper.isAnyTravelBookPresent()) {
+						List<TravelArticle> savedArticles = travelHelper.getBookmarksHelper().getSavedArticles();
 						for (TravelArticle art : savedArticles) {
-							String gpxName = travelDbHelper.getGPXName(art);
+							String gpxName = travelHelper.getGPXName(art);
 							File path = mapActivity.getMyApplication().getAppPath(IndexConstants.GPX_TRAVEL_DIR + gpxName);
 							if (path.getAbsolutePath().equals(group.getGpxPath())) {
 								group.setWikivoyageArticle(art);
@@ -272,6 +275,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 			}
 			ImageView markerImageViewToUpdate;
 			int drawableResToUpdate;
+			int actionIconColor = night ? R.color.icon_color_primary_dark : R.color.icon_color_primary_light;
 			final boolean markerToHighlight = showDirectionMarkers.contains(marker);
 			if (showDirectionEnabled && markerToHighlight) {
 				itemViewHolder.iconDirection.setVisibility(View.GONE);
@@ -280,7 +284,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 				itemViewHolder.mainLayout.setBackgroundColor(ContextCompat.getColor(mapActivity, night ? R.color.list_divider_dark : R.color.markers_top_bar_background));
 				itemViewHolder.title.setTextColor(ContextCompat.getColor(mapActivity, night ? R.color.text_color_primary_dark : R.color.color_white));
 				itemViewHolder.divider.setBackgroundColor(ContextCompat.getColor(mapActivity, R.color.map_markers_on_map_divider_color));
-				itemViewHolder.optionsBtn.setBackgroundDrawable(mapActivity.getResources().getDrawable(R.drawable.marker_circle_background_on_map_with_inset));
+				itemViewHolder.optionsBtn.setBackgroundDrawable(AppCompatResources.getDrawable(mapActivity, R.drawable.marker_circle_background_on_map_with_inset));
 				itemViewHolder.optionsBtn.setImageDrawable(iconsCache.getIcon(markerInHistory ? R.drawable.ic_action_reset_to_default_dark : R.drawable.ic_action_marker_passed, R.color.color_white));
 				itemViewHolder.description.setTextColor(ContextCompat.getColor(mapActivity, R.color.map_markers_on_map_color));
 
@@ -289,13 +293,12 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 			} else {
 				itemViewHolder.iconDirection.setVisibility(View.VISIBLE);
 
-				itemViewHolder.icon.setImageDrawable(iconsCache.getIcon(R.drawable.ic_action_flag_dark, color));
+				itemViewHolder.icon.setImageDrawable(iconsCache.getIcon(R.drawable.ic_action_flag, color));
 				itemViewHolder.mainLayout.setBackgroundColor(ContextCompat.getColor(mapActivity, night ? R.color.list_background_color_dark : R.color.list_background_color_light));
 				itemViewHolder.title.setTextColor(ContextCompat.getColor(mapActivity, night ? R.color.text_color_primary_dark : R.color.text_color_primary_light));
 				itemViewHolder.divider.setBackgroundColor(ContextCompat.getColor(mapActivity, night ? R.color.app_bar_color_dark : R.color.divider_color_light));
-				itemViewHolder.optionsBtn.setBackgroundDrawable(mapActivity.getResources().getDrawable(night ? R.drawable.marker_circle_background_dark_with_inset : R.drawable.marker_circle_background_light_with_inset));
-				itemViewHolder.optionsBtn.setImageDrawable(iconsCache.getIcon(markerInHistory ? R.drawable.ic_action_reset_to_default_dark : R.drawable.ic_action_marker_passed,
-						night ? R.color.icon_color_primary_dark : R.color.active_buttons_and_links_text_light));
+				itemViewHolder.optionsBtn.setBackgroundDrawable(AppCompatResources.getDrawable(mapActivity, night ? R.drawable.marker_circle_background_dark_with_inset : R.drawable.marker_circle_background_light_with_inset));
+				itemViewHolder.optionsBtn.setImageDrawable(iconsCache.getIcon(markerInHistory ? R.drawable.ic_action_reset_to_default_dark : R.drawable.ic_action_marker_passed, actionIconColor));
 				itemViewHolder.description.setTextColor(ContextCompat.getColor(mapActivity, night ? R.color.icon_color_default_dark : R.color.icon_color_default_light));
 
 				drawableResToUpdate = R.drawable.ic_direction_arrow;
@@ -354,8 +357,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 										updateDisplayedData();
 									}
 								});
-						AndroidUtils.setSnackbarTextColor(snackbar, night ? R.color.active_color_primary_dark : R.color.active_color_primary_light);
-						snackbar.getView().setBackgroundColor(ContextCompat.getColor(app, night ? R.color.list_background_color_dark : R.color.list_background_color_light));
+						UiUtilities.setupSnackbar(snackbar, night);
 						snackbar.show();
 					}
 				}
@@ -401,10 +403,10 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 				final GroupHeader groupHeader = (GroupHeader) header;
 				final MapMarkersGroup group = groupHeader.getGroup();
 				String groupName = group.getName();
-				if (groupName.equals("")) {
+				if (groupName.isEmpty()) {
 					groupName = app.getString(R.string.shared_string_favorites);
 				} else if (group.getType() == MapMarkersGroup.GPX_TYPE) {
-					groupName = groupName.replace(".gpx", "").replace("/", " ").replace("_", " ");
+					groupName = groupName.replace(IndexConstants.GPX_FILE_EXT, "").replace("/", " ").replace("_", " ");
 				}
 				if (group.isDisabled()) {
 					headerString = groupName;
@@ -425,7 +427,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 						@Override
 						public void onClick(View v) {
 							if (mapActivity.getSupportFragmentManager() != null) {
-								WikivoyageArticleDialogFragment.showInstance(app, mapActivity.getSupportFragmentManager(), article.getTitle(), article.getLang());
+								WikivoyageArticleDialogFragment.showInstance(app, mapActivity.getSupportFragmentManager(), article.generateIdentifier(), article.getLang());
 							}
 						}
 					};
@@ -490,7 +492,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 											mapMarkersHelper.enableGroup(group);
 										}
 									});
-							AndroidUtils.setSnackbarTextColor(snackbar, R.color.active_color_primary_dark);
+							UiUtilities.setupSnackbar(snackbar, night);
 							snackbar.show();
 						}
 					}
@@ -498,6 +500,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 				headerViewHolder.disableGroupSwitch.setOnCheckedChangeListener(null);
 				headerViewHolder.disableGroupSwitch.setChecked(!groupIsDisabled);
 				headerViewHolder.disableGroupSwitch.setOnCheckedChangeListener(checkedChangeListener);
+				UiUtilities.setupCompoundButton(headerViewHolder.disableGroupSwitch, night, UiUtilities.CompoundButtonType.GLOBAL);
 			} else {
 				throw new IllegalArgumentException("Unsupported header");
 			}
@@ -524,8 +527,8 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 		} else if (holder instanceof MapMarkerCategoriesViewHolder) {
 			final MapMarkerCategoriesViewHolder categoriesViewHolder = (MapMarkerCategoriesViewHolder) holder;
 			final Object header = getItem(position);
-			if (header instanceof MapMarkersHelper.CategoriesSubHeader) {
-				final MapMarkersHelper.CategoriesSubHeader categoriesSubHeader = (MapMarkersHelper.CategoriesSubHeader) header;
+			if (header instanceof CategoriesSubHeader) {
+				final CategoriesSubHeader categoriesSubHeader = (CategoriesSubHeader) header;
 				final MapMarkersGroup group = categoriesSubHeader.getGroup();
 				View.OnClickListener openChooseCategoriesDialog = new View.OnClickListener() {
 					@Override
@@ -576,7 +579,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 			Iterator<String> it = categories.iterator();
 			while (it.hasNext()) {
 				String category = it.next();
-				if (category.equals("")) {
+				if (category.isEmpty()) {
 					category = app.getResources().getString(R.string.shared_string_waypoints);
 				}
 				sb.append(category);
@@ -597,7 +600,7 @@ public class MapMarkersGroupsAdapter extends RecyclerView.Adapter<RecyclerView.V
 			return HEADER_TYPE;
 		} else if (item instanceof ShowHideHistoryButton) {
 			return SHOW_HIDE_HISTORY_TYPE;
-		} else if (item instanceof MapMarkersHelper.CategoriesSubHeader) {
+		} else if (item instanceof CategoriesSubHeader) {
 			return CATEGORIES_TYPE;
 		} else {
 			throw new IllegalArgumentException("Unsupported view type");

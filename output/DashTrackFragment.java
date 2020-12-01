@@ -18,11 +18,11 @@ import net.osmand.GPXUtilities;
 import net.osmand.GPXUtilities.GPXFile;
 import net.osmand.plus.GpxSelectionHelper;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
-import net.osmand.plus.OsmAndAppCustomization;
+import net.osmand.plus.settings.backend.OsmAndAppCustomization;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.activities.SavingTrackHelper;
@@ -241,10 +241,10 @@ public class DashTrackFragment extends DashBaseFragment {
 		v.findViewById(R.id.points_icon).setVisibility(View.VISIBLE);
 		ImageView distance = (ImageView) v.findViewById(R.id.distance_icon);
 		distance.setVisibility(View.VISIBLE);
-		distance.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_small_distance));
+		distance.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_action_distance_16));
 		ImageView pointsCount = (ImageView) v.findViewById(R.id.points_icon);
 		pointsCount.setVisibility(View.VISIBLE);
-		pointsCount.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_small_point));
+		pointsCount.setImageDrawable(app.getUIUtilities().getThemedIcon(R.drawable.ic_action_waypoint_16));
 	}
 
 	private void updateShowOnMap(final OsmandApplication app, final File f, final View pView, final ImageButton showOnMap) {

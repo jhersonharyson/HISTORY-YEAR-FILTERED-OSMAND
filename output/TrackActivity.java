@@ -5,22 +5,24 @@ import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.design.widget.BottomNavigationView;
-import android.support.v4.app.Fragment;
-import android.support.v7.app.ActionBar;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.WindowManager;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.ActionBar;
+import androidx.fragment.app.Fragment;
+
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+
 import net.osmand.AndroidUtils;
 import net.osmand.GPXUtilities;
 import net.osmand.GPXUtilities.GPXFile;
-import net.osmand.GPXUtilities.TrkSegment;
 import net.osmand.GPXUtilities.WptPt;
+import net.osmand.IndexConstants;
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
 import net.osmand.data.QuadRect;
@@ -29,18 +31,19 @@ import net.osmand.plus.GpxSelectionHelper;
 import net.osmand.plus.GpxSelectionHelper.GpxDisplayGroup;
 import net.osmand.plus.GpxSelectionHelper.SelectedGpxFile;
 import net.osmand.plus.LockableViewPager;
-import net.osmand.plus.OsmAndAppCustomization;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.mapmarkers.CoordinateInputDialogFragment;
-import net.osmand.plus.measurementtool.NewGpxData;
+import net.osmand.plus.measurementtool.GpxData;
 import net.osmand.plus.myplaces.FavoritesActivity;
 import net.osmand.plus.myplaces.SplitSegmentDialogFragment;
 import net.osmand.plus.myplaces.TrackBitmapDrawer;
 import net.osmand.plus.myplaces.TrackBitmapDrawer.TrackBitmapDrawerListener;
 import net.osmand.plus.myplaces.TrackPointFragment;
 import net.osmand.plus.myplaces.TrackSegmentFragment;
+import net.osmand.plus.settings.backend.OsmAndAppCustomization;
+import net.osmand.plus.settings.backend.OsmandSettings;
+import net.osmand.plus.track.TrackDisplayHelper;
 import net.osmand.plus.views.AddGpxPointBottomSheetHelper.NewGpxPoint;
 
 import java.io.File;
@@ -55,18 +58,14 @@ public class TrackActivity extends TabActivity {
 	public static final String OPEN_TRACKS_LIST = "OPEN_TRACKS_LIST";
 	public static final String CURRENT_RECORDING = "CURRENT_RECORDING";
 	public static final String SHOW_TEMPORARILY = "SHOW_TEMPORARILY";
-	protected List<WeakReference<Fragment>> fragList = new ArrayList<>();
+
 	private OsmandApplication app;
+	private TrackDisplayHelper displayHelper;
 	private TrackBitmapDrawer trackBitmapDrawer;
 
-	private File file = null;
-	private GPXFile gpxFile;
-	private GpxDataItem gpxDataItem;
 	private LockableViewPager viewPager;
-	private long modifiedTime = -1;
+	private final List<WeakReference<Fragment>> fragList = new ArrayList<>();
 
-	private List<GpxDisplayGroup> displayGroups;
-	private List<GpxDisplayGroup> originalGroups = new ArrayList<>();
 	private boolean stopped = false;
 	private boolean openPointsTab = false;
 	private boolean openTracksList = false;
@@ -83,14 +82,15 @@ public class TrackActivity extends TabActivity {
 			finish();
 			return;
 		}
+		displayHelper = new TrackDisplayHelper(app);
 		if (intent.hasExtra(TRACK_FILE_NAME)) {
-			file = new File(intent.getStringExtra(TRACK_FILE_NAME));
+			displayHelper.setFile(new File(intent.getStringExtra(TRACK_FILE_NAME)));
 		}
 
 		ActionBar actionBar = getSupportActionBar();
 		if (actionBar != null) {
-			if (file != null) {
-				String fn = file.getName().replace(".gpx", "").replace("/", " ").replace("_", " ");
+			if (getFile() != null) {
+				String fn = getFile().getName().replace(IndexConstants.GPX_FILE_EXT, "").replace("/", " ").replace("_", " ");
 				actionBar.setTitle(fn);
 			} else {
 				actionBar.setTitle(getString(R.string.shared_string_currently_recording_track));
@@ -107,9 +107,17 @@ public class TrackActivity extends TabActivity {
 		setContentView(R.layout.track_content);
 	}
 
+	public TrackDisplayHelper getDisplayHelper() {
+		return displayHelper;
+	}
+
 	@Nullable
 	public TrackBitmapDrawer getTrackBitmapDrawer() {
 		return trackBitmapDrawer;
+	}
+
+	public File getFile() {
+		return displayHelper.getFile();
 	}
 
 	public void addPoint(PointDescription pointDescription) {
@@ -120,7 +128,7 @@ public class TrackActivity extends TabActivity {
 		final OsmandSettings settings = app.getSettings();
 		GPXFile gpx = getGpx();
 		LatLon location = settings.getLastKnownMapLocation();
-		QuadRect rect = getRect();
+		QuadRect rect = displayHelper.getRect();
 		NewGpxPoint newGpxPoint = new NewGpxPoint(gpx, pointDescription, rect);
 		if (gpx != null && location != null) {
 			settings.setMapLocationToShow(location.getLatitude(), location.getLongitude(),
@@ -133,14 +141,9 @@ public class TrackActivity extends TabActivity {
 		}
 	}
 
-	public void addNewGpxData(NewGpxData.ActionType actionType) {
-		addNewGpxData(actionType, null);
-	}
-
-	public void addNewGpxData(NewGpxData.ActionType actionType, TrkSegment segment) {
+	public void addNewGpxData() {
 		GPXFile gpxFile = getGpx();
-		QuadRect rect = getRect();
-		NewGpxData newGpxData = new NewGpxData(gpxFile, rect, actionType, segment);
+		GpxData gpxData = new GpxData(gpxFile);
 		WptPt pointToShow = gpxFile != null ? gpxFile.findPointToShow() : null;
 		if (pointToShow != null) {
 			LatLon location = new LatLon(pointToShow.getLatitude(), pointToShow.getLongitude());
@@ -149,60 +152,26 @@ public class TrackActivity extends TabActivity {
 					settings.getLastKnownMapZoom(),
 					new PointDescription(PointDescription.POINT_TYPE_WPT, getString(R.string.add_line)),
 					false,
-					newGpxData
+					gpxData
 			);
-
 			MapActivity.launchMapActivityMoveToTop(this);
 		}
 	}
 
-	public QuadRect getRect() {
-		if (getGpx() != null) {
-			return getGpx().getRect();
-		} else {
-			return new QuadRect(0, 0, 0, 0);
-		}
-	}
-
 	protected void setGpxDataItem(GpxDataItem gpxDataItem) {
-		this.gpxDataItem = gpxDataItem;
+		displayHelper.setGpxDataItem(gpxDataItem);
 	}
 
 	protected void setGpx(GPXFile result) {
-		this.gpxFile = result;
-		if (file == null) {
-			this.gpxFile = getMyApplication().getSavingTrackHelper().getCurrentGpx();
-		}
+		displayHelper.setGpx(result);
 	}
 
 	public List<GpxDisplayGroup> getGpxFile(boolean useDisplayGroups) {
-		if (gpxFile == null) {
-			return new ArrayList<>();
-		}
-		if (gpxFile.modifiedTime != modifiedTime) {
-			modifiedTime = gpxFile.modifiedTime;
-			GpxSelectionHelper selectedGpxHelper = ((OsmandApplication) getApplication()).getSelectedGpxHelper();
-			displayGroups = selectedGpxHelper.collectDisplayGroups(gpxFile);
-			originalGroups.clear();
-			for (GpxDisplayGroup g : displayGroups) {
-				originalGroups.add(g.cloneInstance());
-			}
-			if (file != null) {
-				SelectedGpxFile sf = selectedGpxHelper.getSelectedFileByPath(gpxFile.path);
-				if (sf != null && file != null && sf.getDisplayGroups(app) != null) {
-					displayGroups = sf.getDisplayGroups(app);
-				}
-			}
-		}
-		if (useDisplayGroups) {
-			return displayGroups;
-		} else {
-			return originalGroups;
-		}
+		return displayHelper.getGpxFile(useDisplayGroups);
 	}
 
 	@Override
-	public void onAttachFragment(Fragment fragment) {
+	public void onAttachFragment(@NonNull Fragment fragment) {
 		fragList.add(new WeakReference<>(fragment));
 		if (trackBitmapDrawer != null && fragment instanceof TrackBitmapDrawerListener) {
 			trackBitmapDrawer.addListener((TrackBitmapDrawerListener) fragment);
@@ -222,7 +191,7 @@ public class TrackActivity extends TabActivity {
 	}
 
 	@Override
-	protected void onSaveInstanceState(Bundle outState) {
+	protected void onSaveInstanceState(@NonNull Bundle outState) {
 		super.onSaveInstanceState(outState);
 		if (viewPager.getCurrentItem() == 1) {
 			outState.putBoolean(OPEN_POINTS_TAB, true);
@@ -268,15 +237,6 @@ public class TrackActivity extends TabActivity {
 
 		}
 		return false;
-	}
-
-	public void updateSplitView() {
-		for (WeakReference<Fragment> f : fragList) {
-			Fragment frag = f.get();
-			if (frag instanceof TrackSegmentFragment) {
-				((TrackSegmentFragment) frag).updateSplitView();
-			}
-		}
 	}
 
 	public void updateHeader(Fragment sender) {
@@ -327,23 +287,23 @@ public class TrackActivity extends TabActivity {
 
 	@Nullable
 	public GPXFile getGpx() {
-		return gpxFile;
+		return displayHelper.getGpx();
 	}
 
 	@Nullable
 	public GpxDataItem getGpxDataItem() {
-		return gpxDataItem;
+		return displayHelper.getGpxDataItem();
 	}
 
-	private void onGPXFileReady(@Nullable GPXFile gpxFile) {
+	public void onGPXFileReady(@Nullable GPXFile gpxFile) {
 		setGpx(gpxFile);
-		setGpxDataItem(file != null ? app.getGpxDbHelper().getItem(file) : null);
+		setGpxDataItem(getFile() != null ? app.getGpxDbHelper().getItem(getFile()) : null);
 
 		WindowManager mgr = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
 		if (gpxFile != null && mgr != null) {
 			DisplayMetrics dm = new DisplayMetrics();
 			mgr.getDefaultDisplay().getMetrics(dm);
-			trackBitmapDrawer = new TrackBitmapDrawer(app, gpxFile, getGpxDataItem(), getRect(), dm.density, dm.widthPixels, AndroidUtils.dpToPx(app, 152f));
+			trackBitmapDrawer = new TrackBitmapDrawer(app, gpxFile, getGpxDataItem(), displayHelper.getRect(), dm.density, dm.widthPixels, AndroidUtils.dpToPx(app, 152f));
 		}
 
 		for (WeakReference<Fragment> f : fragList) {
@@ -410,17 +370,6 @@ public class TrackActivity extends TabActivity {
 		}
 	}
 
-	public boolean setJoinSegments(boolean joinSegments) {
-		if (gpxDataItem != null) {
-			return app.getGpxDbHelper().updateJoinSegments(gpxDataItem, joinSegments);
-		}
-		return false;
-	}
-
-	public boolean isJoinSegments() {
-		return gpxDataItem != null && gpxDataItem.isJoinSegments();
-	}
-
 	private static class GPXFileLoaderTask extends AsyncTask<Void, Void, GPXFile> {
 
 		private OsmandApplication app;
@@ -435,7 +384,7 @@ public class TrackActivity extends TabActivity {
 		GPXFileLoaderTask(@NonNull TrackActivity activity) {
 			this.activityRef = new WeakReference<>(activity);
 			app = activity.getMyApplication();
-			file = activity.file;
+			file = activity.getDisplayHelper().getFile();
 		}
 
 		protected void onPreExecute() {
@@ -484,11 +433,11 @@ public class TrackActivity extends TabActivity {
 			if (activity != null) {
 				activity.setSupportProgressBarIndeterminateVisibility(false);
 				if (result != null) {
-					final GpxSelectionHelper helper = app.getSelectedGpxHelper();
+					GpxSelectionHelper helper = app.getSelectedGpxHelper();
 					if (showTemporarily) {
 						helper.selectGpxFile(result, false, false);
 					} else {
-						final SelectedGpxFile selectedGpx = helper.getSelectedFileByPath(result.path);
+						SelectedGpxFile selectedGpx = helper.getSelectedFileByPath(result.path);
 						if (selectedGpx != null && result.error == null) {
 							selectedGpx.setGpxFile(result, app);
 						}

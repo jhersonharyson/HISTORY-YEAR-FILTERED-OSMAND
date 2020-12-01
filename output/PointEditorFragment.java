@@ -7,12 +7,6 @@ import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.FragmentActivity;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.Toolbar;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
@@ -24,6 +18,13 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.FragmentActivity;
+
 import net.osmand.AndroidUtils;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
@@ -32,6 +33,9 @@ import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.base.BaseOsmAndFragment;
 import net.osmand.plus.widgets.AutoCompleteTextViewEx;
 import net.osmand.util.Algorithms;
+
+import static net.osmand.plus.FavouritesDbHelper.FavoriteGroup.PERSONAL_CATEGORY;
+import static net.osmand.plus.FavouritesDbHelper.FavoriteGroup.isPersonalCategoryDisplayName;
 
 public abstract class PointEditorFragment extends BaseOsmAndFragment {
 
@@ -60,7 +64,8 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 		toolbar.setTitle(getToolbarTitle());
 
 		OsmandApplication app = requireMyApplication();
-		Drawable icBack = app.getUIUtilities().getIcon(R.drawable.ic_arrow_back, !editor.isLight() ? R.color.active_buttons_and_links_text_dark : R.color.active_buttons_and_links_text_light);
+		Drawable icBack = app.getUIUtilities().getIcon(AndroidUtils.getNavigationIconResId(app),
+				!editor.isLight() ? R.color.active_buttons_and_links_text_dark : R.color.active_buttons_and_links_text_light);
 		toolbar.setNavigationIcon(icBack);
 		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setTitleTextColor(getResources().getColor(getResIdFromAttribute(getMapActivity(), R.attr.pstsTextColor)));
@@ -163,7 +168,6 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 			categoryEdit.setHint(R.string.access_hint_enter_category);
 			descriptionEdit.setHint(R.string.access_hint_enter_description);
 		}
-
 		return view;
 	}
 
@@ -203,7 +207,7 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 		if (editor != null && editor.isNew()) {
 			nameEdit.selectAll();
 			nameEdit.requestFocus();
-			AndroidUtils.softKeyboardDelayed(nameEdit);
+			AndroidUtils.softKeyboardDelayed(getActivity(), nameEdit);
 		}
 	}
 
@@ -354,12 +358,24 @@ public abstract class PointEditorFragment extends BaseOsmAndFragment {
 	public String getCategoryTextValue() {
 		AutoCompleteTextViewEx categoryEdit = (AutoCompleteTextViewEx) view.findViewById(R.id.category_edit);
 		String name = categoryEdit.getText().toString().trim();
-		return name.equals(getDefaultCategoryName()) ? "" : name;
+		if (isPersonalCategoryDisplayName(requireContext(), name)) {
+			return PERSONAL_CATEGORY;
+		}
+		if(name.equals(getDefaultCategoryName())) {
+			return "";
+		}
+		return name;
 	}
 
 	public String getDescriptionTextValue() {
 		EditText descriptionEdit = (EditText) view.findViewById(R.id.description_edit);
 		String res = descriptionEdit.getText().toString().trim();
+		return Algorithms.isEmpty(res) ? null : res;
+	}
+
+	public String getAddressTextValue() {
+		EditText addressEdit = (EditText) view.findViewById(R.id.address_edit);
+		String res = addressEdit.getText().toString().trim();
 		return Algorithms.isEmpty(res) ? null : res;
 	}
 

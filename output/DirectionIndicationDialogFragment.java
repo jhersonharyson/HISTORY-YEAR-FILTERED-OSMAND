@@ -7,10 +7,6 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.annotation.Nullable;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.ListPopupWindow;
-import android.support.v7.widget.Toolbar;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
@@ -24,15 +20,19 @@ import android.widget.ImageView;
 import android.widget.RadioButton;
 import android.widget.TextView;
 
+import androidx.annotation.Nullable;
+import androidx.appcompat.widget.ListPopupWindow;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.ContextCompat;
+
 import com.github.ksoichiro.android.observablescrollview.ObservableScrollView;
 import com.github.ksoichiro.android.observablescrollview.ObservableScrollViewCallbacks;
 import com.github.ksoichiro.android.observablescrollview.ScrollState;
 
 import net.osmand.AndroidUtils;
-import net.osmand.plus.ApplicationMode;
-import net.osmand.plus.OsmandSettings;
-import net.osmand.plus.OsmandSettings.MapMarkersMode;
-import net.osmand.plus.OsmandSettings.OsmandPreference;
+import net.osmand.plus.settings.backend.ApplicationMode;
+import net.osmand.plus.settings.backend.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandPreference;
 import net.osmand.plus.R;
 import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
@@ -40,6 +40,8 @@ import net.osmand.plus.base.BaseOsmAndDialogFragment;
 import net.osmand.plus.helpers.AndroidUiHelper;
 
 import java.util.LinkedList;
+
+import static net.osmand.plus.UiUtilities.CompoundButtonType.PROFILE_DEPENDENT;
 
 public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment {
 
@@ -67,7 +69,8 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 		mainView = UiUtilities.getInflater(getContext(), !settings.isLightContent()).inflate(R.layout.fragment_direction_indication_dialog, container);
 
 		Toolbar toolbar = (Toolbar) mainView.findViewById(R.id.toolbar);
-		toolbar.setNavigationIcon(getIconsCache().getIcon(R.drawable.ic_arrow_back));
+		int navigationIconResId = AndroidUtils.getNavigationIconResId(getContext());
+		toolbar.setNavigationIcon(getIconsCache().getIcon(navigationIconResId));
 		toolbar.setNavigationContentDescription(R.string.access_shared_string_navigate_up);
 		toolbar.setNavigationOnClickListener(new View.OnClickListener() {
 			@Override
@@ -78,7 +81,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 
 		TextView appModeTv = (TextView) mainView.findViewById(R.id.app_mode_text_view);
 		ApplicationMode appMode = settings.APPLICATION_MODE.get();
-		appModeTv.setText(appMode.toHumanString(getContext()));
+		appModeTv.setText(appMode.toHumanString());
 		appModeTv.setCompoundDrawablesWithIntrinsicBounds(null, null, getIconsCache().getIcon(
 			appMode.getIconRes()), null);
 
@@ -152,7 +155,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 				updateSelection(true);
 			}
 		});
-		UiUtilities.setupCompoundButton(getMyApplication(), distanceIndicationToggle, nightMode, true);
+		UiUtilities.setupCompoundButton(distanceIndicationToggle, nightMode, PROFILE_DEPENDENT);
 
 		mainView.findViewById(R.id.top_bar_row).setOnClickListener(new View.OnClickListener() {
 			@Override
@@ -180,7 +183,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 				updateChecked(settings.SHOW_ARROWS_TO_FIRST_MARKERS, showArrowsToggle);
 			}
 		});
-		UiUtilities.setupCompoundButton(getMyApplication(), showArrowsToggle, nightMode, true);
+		UiUtilities.setupCompoundButton(showArrowsToggle, nightMode, PROFILE_DEPENDENT);
 
 		final CompoundButton showLinesToggle = (CompoundButton) mainView.findViewById(R.id.show_guide_line_switch);
 		showLinesToggle.setChecked(settings.SHOW_LINES_TO_FIRST_MARKERS.get());
@@ -190,7 +193,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 				updateChecked(settings.SHOW_LINES_TO_FIRST_MARKERS, showLinesToggle);
 			}
 		});
-		UiUtilities.setupCompoundButton(getMyApplication(), showLinesToggle, nightMode, true);
+		UiUtilities.setupCompoundButton(showLinesToggle, nightMode, PROFILE_DEPENDENT);
 
 		final CompoundButton oneTapActiveToggle = (CompoundButton) mainView.findViewById(R.id.one_tap_active_switch);
 		oneTapActiveToggle.setChecked(settings.SELECT_MARKER_ON_SINGLE_TAP.get());
@@ -200,7 +203,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 				updateChecked(settings.SELECT_MARKER_ON_SINGLE_TAP, oneTapActiveToggle);
 			}
 		});
-		UiUtilities.setupCompoundButton(getMyApplication(), oneTapActiveToggle, nightMode, true);
+		UiUtilities.setupCompoundButton(oneTapActiveToggle, nightMode, PROFILE_DEPENDENT);
 
 		final CompoundButton keepPassedToggle = (CompoundButton) mainView.findViewById(R.id.keep_passed_switch);
 		keepPassedToggle.setChecked(settings.KEEP_PASSED_MARKERS_ON_MAP.get());
@@ -210,7 +213,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 				updateChecked(settings.KEEP_PASSED_MARKERS_ON_MAP, keepPassedToggle);
 			}
 		});
-		UiUtilities.setupCompoundButton(getMyApplication(), keepPassedToggle, nightMode, true);
+		UiUtilities.setupCompoundButton(keepPassedToggle, nightMode, PROFILE_DEPENDENT);
 
 		return mainView;
 	}
@@ -274,7 +277,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 				}
 			}
 			((ImageView) mainView.findViewById(R.id.action_bar_image))
-					.setImageDrawable(new LayerDrawable(imgList.toArray(new Drawable[imgList.size()])));
+					.setImageDrawable(new LayerDrawable(imgList.toArray(new Drawable[0])));
 		} else {
 			mainView.findViewById(R.id.action_bar_image_container).setVisibility(View.GONE);
 		}
@@ -387,7 +390,7 @@ public class DirectionIndicationDialogFragment extends BaseOsmAndDialogFragment 
 	private void updateMarkerModeRow(int rowId, int radioButtonId, boolean checked, boolean active) {
 		RadioButton rb = (RadioButton) mainView.findViewById(radioButtonId);
 		rb.setChecked(checked);
-		UiUtilities.setupCompoundButton(getMyApplication(), rb, isNightMode(usedOnMap), true);
+		UiUtilities.setupCompoundButton(rb, isNightMode(usedOnMap), PROFILE_DEPENDENT);
 		mainView.findViewById(rowId).setEnabled(active);
 	}
 

@@ -1,16 +1,19 @@
 package net.osmand.plus.download;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import net.osmand.IndexConstants;
 import net.osmand.PlatformUtil;
 import net.osmand.data.LatLon;
 import net.osmand.map.OsmandRegions;
 import net.osmand.map.WorldRegion;
+import net.osmand.plus.CustomRegion;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.download.DownloadOsmandIndexesHelper.AssetIndexItem;
 import net.osmand.plus.inapp.InAppPurchaseHelper;
+import net.osmand.util.Algorithms;
 
 import org.apache.commons.logging.Log;
 
@@ -18,6 +21,7 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.text.DateFormat;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -77,7 +81,7 @@ public class DownloadResources extends DownloadResourceGroup {
 		List<IndexItem> items = getWikivoyageItems();
 		if (items != null) {
 			for (IndexItem ii : items) {
-				if (ii.getFileName().equals(fileName)) {
+				if (ii.getTargetFile(app).getName().equals(fileName)) {
 					return ii;
 				}
 			}
@@ -127,14 +131,18 @@ public class DownloadResources extends DownloadResourceGroup {
 		java.text.DateFormat dateFormat = app.getResourceManager().getDateFormat();
 		Map<String, String> indexActivatedFileNames = app.getResourceManager().getIndexFileNames();
 		listWithAlternatives(dateFormat, app.getAppPath(""), IndexConstants.EXTRA_EXT, indexActivatedFileNames);
-		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR), IndexConstants.BINARY_WIKIVOYAGE_MAP_INDEX_EXT, 
-				indexActivatedFileNames);
+		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR),
+				IndexConstants.BINARY_WIKIVOYAGE_MAP_INDEX_EXT, indexActivatedFileNames);
+		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR),
+				IndexConstants.BINARY_TRAVEL_GUIDE_MAP_INDEX_EXT, indexActivatedFileNames);
 		Map<String, String> indexFileNames = app.getResourceManager().getIndexFileNames();
 		listWithAlternatives(dateFormat, app.getAppPath(""), IndexConstants.EXTRA_EXT, indexFileNames);
 		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.TILES_INDEX_DIR), IndexConstants.SQLITE_EXT,
 				indexFileNames);
-		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR), IndexConstants.BINARY_WIKIVOYAGE_MAP_INDEX_EXT, 
-				indexFileNames);
+		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR),
+				IndexConstants.BINARY_WIKIVOYAGE_MAP_INDEX_EXT, indexFileNames);
+		listWithAlternatives(dateFormat, app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR),
+				IndexConstants.BINARY_TRAVEL_GUIDE_MAP_INDEX_EXT, indexFileNames);
 		app.getResourceManager().getBackupIndexes(indexFileNames);
 		this.indexFileNames = indexFileNames;
 		this.indexActivatedFileNames = indexActivatedFileNames;
@@ -170,24 +178,25 @@ public class DownloadResources extends DownloadResourceGroup {
 			}
 		}
 		if (date != null && !date.equals(indexActivatedDate) && !date.equals(indexFilesDate)) {
+			long oldItemSize = 0;
+			long itemSize = item.getContentSize();
 			if ((item.getType() == DownloadActivityType.NORMAL_FILE && !item.extra)
 					|| item.getType() == DownloadActivityType.ROADS_FILE
 					|| item.getType() == DownloadActivityType.WIKIPEDIA_FILE
 					|| item.getType() == DownloadActivityType.DEPTH_CONTOUR_FILE
 					|| item.getType() == DownloadActivityType.SRTM_COUNTRY_FILE) {
 				outdated = true;
-			} else if(item.getType() == DownloadActivityType.WIKIVOYAGE_FILE) {
-				long itemSize = item.getContentSize();
-				long oldItemSize = app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR +
+			} else if (item.getType() == DownloadActivityType.WIKIVOYAGE_FILE
+					|| item.getType() == DownloadActivityType.TRAVEL_FILE) {
+				oldItemSize = app.getAppPath(IndexConstants.WIKIVOYAGE_INDEX_DIR +
 						item.getTargetFileName()).length();
 				if (itemSize != oldItemSize) {
 					outdated = true;
 				}
 			} else {
-
-				long itemSize = item.getContentSize();
-				long oldItemSize = 0;
-				if (item.getType() == DownloadActivityType.VOICE_FILE) {
+				if (parsed && item.getTimestamp() > item.getLocalTimestamp()) {
+					outdated = true;
+				} else if (item.getType() == DownloadActivityType.VOICE_FILE) {
 					if (item instanceof AssetIndexItem) {
 						File file = new File(((AssetIndexItem) item).getDestFile());
 						oldItemSize = file.length();
@@ -210,16 +219,27 @@ public class DownloadResources extends DownloadResourceGroup {
 				} else {
 					oldItemSize = app.getAppPath(item.getTargetFileName()).length();
 				}
-				if (itemSize != oldItemSize) {
+				if (!parsed && itemSize != oldItemSize) {
 					outdated = true;
 				}
+			}
+			if (outdated) {
+				logItemUpdateInfo(item, format, itemSize, oldItemSize);
 			}
 		}
 		item.setOutdated(outdated);
 		return outdated;
 	}
 
-	
+	private void logItemUpdateInfo(IndexItem item, DateFormat format, long itemSize, long oldItemSize) {
+		String date = item.getDate(format);
+		String sfName = item.getTargetFileName();
+		String indexActivatedDate = indexActivatedFileNames.get(sfName);
+		String indexFilesDate = indexFileNames.get(sfName);
+		LOG.info("name " + item.getFileName() + " timestamp " + item.timestamp + " localTimestamp " + item.localTimestamp + " date " + date
+				+ " indexActivatedDate " + indexActivatedDate + " indexFilesDate " + indexFilesDate
+				+ " itemSize " + itemSize + " oldItemSize " + oldItemSize);
+	}
 
 	protected void updateFilesToUpdate() {
 		initAlreadyLoadedFiles();
@@ -290,6 +310,8 @@ public class DownloadResources extends DownloadResourceGroup {
 	protected boolean prepareData(List<IndexItem> resources) {
 		this.rawResources = resources;
 
+		DownloadResourceGroup extraMapsGroup = new DownloadResourceGroup(this, DownloadResourceGroupType.EXTRA_MAPS);
+
 		DownloadResourceGroup otherMapsGroup = new DownloadResourceGroup(this, DownloadResourceGroupType.OTHER_MAPS_GROUP);
 		DownloadResourceGroup otherMapsScreen = new DownloadResourceGroup(otherMapsGroup, DownloadResourceGroupType.OTHER_MAPS);
 		DownloadResourceGroup otherMaps = new DownloadResourceGroup(otherMapsGroup, DownloadResourceGroupType.OTHER_MAPS_HEADER);
@@ -337,7 +359,11 @@ public class DownloadResources extends DownloadResourceGroup {
 				}
 				continue;
 			}
-			if(ii.getType() == DownloadActivityType.WIKIVOYAGE_FILE) {
+			if (ii.getType() == DownloadActivityType.WIKIVOYAGE_FILE) {
+				wikivoyageMaps.addItem(ii);
+				continue;
+			}
+			if (ii.getType() == DownloadActivityType.TRAVEL_FILE) {
 				wikivoyageMaps.addItem(ii);
 				continue;
 			}
@@ -362,6 +388,14 @@ public class DownloadResources extends DownloadResourceGroup {
 			}
 		}
 		this.groupByRegion = groupByRegion;
+
+		List<WorldRegion> customRegions = OsmandPlugin.getCustomDownloadRegions();
+		if (!Algorithms.isEmpty(customRegions)) {
+			addGroup(extraMapsGroup);
+			for (WorldRegion region : customRegions) {
+				buildRegionsGroups(region, extraMapsGroup);
+			}
+		}
 
 		LinkedList<WorldRegion> queue = new LinkedList<WorldRegion>();
 		LinkedList<DownloadResourceGroup> parent = new LinkedList<DownloadResourceGroup>();
@@ -433,6 +467,40 @@ public class DownloadResources extends DownloadResourceGroup {
 		return true;
 	}
 
+	private void buildRegionsGroups(WorldRegion region, DownloadResourceGroup group) {
+		LinkedList<WorldRegion> queue = new LinkedList<WorldRegion>();
+		LinkedList<DownloadResourceGroup> parent = new LinkedList<DownloadResourceGroup>();
+		queue.add(region);
+		parent.add(group);
+		while (!queue.isEmpty()) {
+			WorldRegion reg = queue.pollFirst();
+			DownloadResourceGroup parentGroup = parent.pollFirst();
+			List<WorldRegion> subregions = reg.getSubregions();
+			DownloadResourceGroup mainGrp = new DownloadResourceGroup(parentGroup, DownloadResourceGroupType.REGION, reg.getRegionId());
+			mainGrp.region = reg;
+			parentGroup.addGroup(mainGrp);
+
+			if (reg instanceof CustomRegion) {
+				CustomRegion customRegion = (CustomRegion) reg;
+				List<IndexItem> indexItems = customRegion.loadIndexItems();
+				if (!Algorithms.isEmpty(indexItems)) {
+					DownloadResourceGroup flatFiles = new DownloadResourceGroup(mainGrp, DownloadResourceGroupType.REGION_MAPS);
+					for (IndexItem ii : indexItems) {
+						flatFiles.addItem(ii);
+					}
+					mainGrp.addGroup(flatFiles);
+				}
+			}
+			DownloadResourceGroup subRegions = new DownloadResourceGroup(mainGrp, DownloadResourceGroupType.EXTRA_MAPS);
+			mainGrp.addGroup(subRegions);
+			// add to processing queue
+			for (WorldRegion rg : subregions) {
+				queue.add(rg);
+				parent.add(subRegions);
+			}
+		}
+	}
+
 	/**
 	 * @return smallest index item, if there are no downloaded index items; Downloaded item otherwise.
 	 */
@@ -465,13 +533,40 @@ public class DownloadResources extends DownloadResourceGroup {
 	}
 
 	public static List<IndexItem> findIndexItemsAt(OsmandApplication app, LatLon latLon, DownloadActivityType type, boolean includeDownloaded) throws IOException {
+		return findIndexItemsAt(app, latLon, type, includeDownloaded, -1, false);
+	}
+
+	public static List<IndexItem> findIndexItemsAt(OsmandApplication app, LatLon latLon, DownloadActivityType type, boolean includeDownloaded, int limit, boolean skipIfOneDownloaded) throws IOException {
 		List<IndexItem> res = new ArrayList<>();
 		OsmandRegions regions = app.getRegions();
 		DownloadIndexesThread downloadThread = app.getDownloadThread();
-		List<WorldRegion> downloadRegions = regions.getWoldRegionsAt(latLon);
+		List<WorldRegion> downloadRegions = regions.getWorldRegionsAt(latLon);
 		for (WorldRegion downloadRegion : downloadRegions) {
-			if (includeDownloaded || !isIndexItemDownloaded(downloadThread, type, downloadRegion, res)) {
+			boolean itemDownloaded = isIndexItemDownloaded(downloadThread, type, downloadRegion, res);
+			if (skipIfOneDownloaded && itemDownloaded) {
+				return new ArrayList<>();
+			}
+			if (includeDownloaded || !itemDownloaded) {
 				addIndexItem(downloadThread, type, downloadRegion, res);
+			}
+			if (limit != -1 && res.size() == limit) {
+				break;
+			}
+		}
+		return res;
+	}
+
+	public static List<IndexItem> findIndexItemsAt(OsmandApplication app, List<String> names, DownloadActivityType type, boolean includeDownloaded, int limit) {
+		List<IndexItem> res = new ArrayList<>();
+		OsmandRegions regions = app.getRegions();
+		DownloadIndexesThread downloadThread = app.getDownloadThread();
+		for (String name : names) {
+			WorldRegion downloadRegion = regions.getRegionDataByDownloadName(name);
+			if (downloadRegion != null && (includeDownloaded || !isIndexItemDownloaded(downloadThread, type, downloadRegion, res))) {
+				addIndexItem(downloadThread, type, downloadRegion, res);
+			}
+			if (limit != -1 && res.size() == limit) {
+				break;
 			}
 		}
 		return res;

@@ -1,8 +1,5 @@
 package net.osmand.plus.mapmarkers.adapters;
 
-import android.support.v4.content.ContextCompat;
-import android.support.v4.view.MotionEventCompat;
-import android.support.v7.widget.RecyclerView;
 import android.util.Pair;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
@@ -10,17 +7,21 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.RecyclerView;
+
+import net.osmand.GPXUtilities.WptPt;
 import net.osmand.Location;
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
-import net.osmand.GPXUtilities.WptPt;
 import net.osmand.plus.GeocodingLookupService.AddressLookupRequest;
 import net.osmand.plus.GeocodingLookupService.OnAddressLookupResult;
-import net.osmand.plus.UiUtilities;
-import net.osmand.plus.MapMarkersHelper.MapMarker;
+import net.osmand.plus.mapmarkers.MapMarker;
 import net.osmand.plus.OsmAndFormatter;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.util.MapUtils;
 
@@ -143,7 +144,7 @@ public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemVie
 		}
 		holder.bottomShadow.setVisibility(lastMarkerItem ? View.VISIBLE : View.GONE);
 		holder.iconReorder.setVisibility(View.VISIBLE);
-		holder.iconReorder.setImageDrawable(iconsCache.getThemedIcon(R.drawable.ic_action_reorder));
+		holder.iconReorder.setImageDrawable(iconsCache.getThemedIcon(R.drawable.ic_action_item_move));
 		holder.description.setTextColor(ContextCompat.getColor(mapActivity, night ? R.color.icon_color_default_dark : R.color.icon_color_default_light));
 
 		holder.firstDescription.setVisibility((start || finish) ? View.VISIBLE : View.GONE);
@@ -154,9 +155,9 @@ public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemVie
 		}
 
 		if (location != null) {
-			holder.icon.setImageDrawable(ContextCompat.getDrawable(mapActivity, R.drawable.map_pedestrian_location));
+			holder.icon.setImageDrawable(AppCompatResources.getDrawable(mapActivity, R.drawable.ic_action_location_color));
 		} else {
-			int res = start ? R.drawable.ic_action_point_start : (finish ? R.drawable.ic_action_point_destination : R.drawable.ic_action_flag_dark);
+			int res = start ? R.drawable.ic_action_point_start : (finish ? R.drawable.ic_action_point_destination : R.drawable.ic_action_flag);
 			holder.icon.setImageDrawable(iconsCache.getIcon(res, MapMarker.getColorId(marker.colorIndex)));
 		}
 
@@ -181,7 +182,7 @@ public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemVie
 			holder.iconReorder.setOnTouchListener(new View.OnTouchListener() {
 				@Override
 				public boolean onTouch(View view, MotionEvent event) {
-					if (MotionEventCompat.getActionMasked(event) == MotionEvent.ACTION_DOWN) {
+					if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
 						inDragAndDrop = true;
 						if (showRoundTripItem) {
 							int roundTripItemPos = finishPos;
@@ -196,7 +197,7 @@ public class MapMarkersListAdapter extends RecyclerView.Adapter<MapMarkerItemVie
 
 			String descr;
 			if ((descr = marker.groupName) != null) {
-				if (descr.equals("")) {
+				if (descr.isEmpty()) {
 					descr = mapActivity.getString(R.string.shared_string_favorites);
 				}
 			} else {

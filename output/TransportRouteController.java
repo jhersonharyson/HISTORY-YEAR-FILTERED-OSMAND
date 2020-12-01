@@ -1,10 +1,12 @@
 package net.osmand.plus.mapcontextmenu.controllers;
 
-import android.support.annotation.NonNull;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.View.OnClickListener;
 
+import androidx.annotation.NonNull;
+
+import net.osmand.AndroidUtils;
 import net.osmand.binary.OsmandOdb.TransportRouteStop;
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
@@ -15,7 +17,7 @@ import net.osmand.plus.mapcontextmenu.MapContextMenu;
 import net.osmand.plus.mapcontextmenu.MenuBuilder;
 import net.osmand.plus.mapcontextmenu.MenuController;
 import net.osmand.plus.transport.TransportStopRoute;
-import net.osmand.plus.views.TransportStopsLayer;
+import net.osmand.plus.views.layers.TransportStopsLayer;
 
 import java.util.List;
 
@@ -28,8 +30,10 @@ public class TransportRouteController extends MenuController {
 		super(new MenuBuilder(mapActivity), pointDescription, mapActivity);
 		this.transportRoute = transportRoute;
 		builder.setShowOnlinePhotos(false);
+		int navigationIconResId = AndroidUtils.getNavigationIconResId(mapActivity);
 		toolbarController = new ContextMenuToolbarController(this);
 		toolbarController.setTitle(getNameStr());
+		toolbarController.setBackBtnIconIds(navigationIconResId, navigationIconResId);
 		toolbarController.setOnBackButtonClickListener(new OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -65,7 +69,6 @@ public class TransportRouteController extends MenuController {
 			}
 		};
 		leftTitleButtonController.caption = mapActivity.getString(R.string.shared_string_previous);
-		leftTitleButtonController.leftIconId = R.drawable.ic_arrow_back;
 
 		rightTitleButtonController = new TitleButtonController() {
 			@Override
@@ -77,7 +80,14 @@ public class TransportRouteController extends MenuController {
 			}
 		};
 		rightTitleButtonController.caption = mapActivity.getString(R.string.shared_string_next);
-		rightTitleButtonController.rightIconId = R.drawable.ic_arrow_forward;
+
+		if (AndroidUtils.isLayoutRtl(mapActivity)) {
+			leftTitleButtonController.endIconId = R.drawable.ic_arrow_forward;
+			rightTitleButtonController.startIconId = R.drawable.ic_arrow_back;
+		} else {
+			leftTitleButtonController.startIconId = R.drawable.ic_arrow_back;
+			rightTitleButtonController.endIconId = R.drawable.ic_arrow_forward;
+		}
 	}
 
 	@NonNull

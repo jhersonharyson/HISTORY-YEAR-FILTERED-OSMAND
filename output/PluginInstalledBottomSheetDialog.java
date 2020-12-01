@@ -2,17 +2,21 @@ package net.osmand.plus.dialogs;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Typeface;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.v4.app.FragmentManager;
+import android.text.SpannableString;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 
+import androidx.annotation.NonNull;
+import androidx.fragment.app.FragmentManager;
+
 import net.osmand.AndroidUtils;
 import net.osmand.PlatformUtil;
-import net.osmand.plus.ApplicationMode;
+import net.osmand.plus.profiles.ProfileDataUtils;
+import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
 import net.osmand.plus.R;
@@ -29,7 +33,8 @@ import net.osmand.plus.download.DownloadIndexesThread;
 import net.osmand.plus.download.DownloadValidationManager;
 import net.osmand.plus.download.IndexItem;
 import net.osmand.plus.helpers.AndroidUiHelper;
-import net.osmand.plus.settings.BaseSettingsFragment;
+import net.osmand.plus.helpers.FontCache;
+import net.osmand.plus.widgets.style.CustomTypefaceSpan;
 
 import org.apache.commons.logging.Log;
 
@@ -79,10 +84,14 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 				.create();
 		items.add(titleItem);
 
+		Typeface typeface = FontCache.getRobotoMedium(getContext());
+		SpannableString pluginTitleSpan = new SpannableString(plugin.getName());
+		pluginTitleSpan.setSpan(new CustomTypefaceSpan(typeface), 0, pluginTitleSpan.length(), 0);
+
 		BaseBottomSheetItem pluginTitle = new SimpleBottomSheetItem.Builder()
-				.setTitle(plugin.getName())
+				.setTitle(pluginTitleSpan)
 				.setTitleColorId(nightMode ? R.color.active_color_primary_dark : R.color.active_color_primary_light)
-				.setIcon(getContentIcon(R.drawable.ic_extension_dark))
+				.setIcon(plugin.getLogoResource())
 				.setLayoutId(R.layout.bottom_sheet_item_simple_56dp)
 				.create();
 		items.add(pluginTitle);
@@ -100,6 +109,7 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 						setupHeightAndBackground(getView());
 					}
 				})
+				.setDescriptionLinksClickable(true)
 				.setDescription(plugin.getDescription())
 				.setDescriptionMaxLines(COLLAPSED_DESCRIPTION_LINES)
 				.setLayoutId(R.layout.bottom_sheet_item_with_expandable_descr)
@@ -163,6 +173,20 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 	}
 
 	@Override
+	protected void onDismissButtonClickAction() {
+		OsmandApplication app = getMyApplication();
+		OsmandPlugin plugin = OsmandPlugin.getPlugin(pluginId);
+		if (app != null && plugin != null) {
+			Activity activity = getActivity();
+			OsmandPlugin.enablePlugin(activity, app, plugin, false);
+
+			if (activity instanceof PluginStateListener) {
+				((PluginStateListener) activity).onPluginStateChanged(plugin);
+			}
+		}
+	}
+
+	@Override
 	protected int getRightBottomButtonTextId() {
 		return R.string.shared_string_ok;
 	}
@@ -197,8 +221,8 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 			final BottomSheetItemWithCompoundButton[] appModeItem = new BottomSheetItemWithCompoundButton[1];
 			appModeItem[0] = (BottomSheetItemWithCompoundButton) new BottomSheetItemWithCompoundButton.Builder()
 					.setChecked(ApplicationMode.values(app).contains(mode))
-					.setDescription(BaseSettingsFragment.getAppModeDescription(app, mode))
-					.setTitle(mode.toHumanString(app))
+					.setDescription(ProfileDataUtils.getAppModeDescription(app, mode))
+					.setTitle(mode.toHumanString())
 					.setIcon(getActiveIcon(mode.getIconRes()))
 					.setLayoutId(R.layout.bottom_sheet_item_with_descr_and_switch_56dp)
 					.setOnClickListener(new View.OnClickListener() {
@@ -216,10 +240,11 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 
 	private void createSuggestedMapsItems(List<IndexItem> suggestedMaps) {
 		final OsmandApplication app = requiredMyApplication();
+		Context themedCtx = UiUtilities.getThemedContext(app, nightMode);
 
-		items.add(new DividerItem(getContext()));
+		items.add(new DividerItem(themedCtx));
 
-		View categoryView = UiUtilities.getInflater(getContext(), nightMode).inflate(R.layout.bottom_sheet_item_with_descr_56dp, null);
+		View categoryView = UiUtilities.getInflater(themedCtx, nightMode).inflate(R.layout.bottom_sheet_item_with_descr_56dp, null);
 		categoryView.findViewById(R.id.icon).setVisibility(View.GONE);
 
 		BaseBottomSheetItem addedAppProfiles = new BottomSheetItemWithDescription.Builder()
@@ -232,8 +257,8 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 		final DownloadIndexesThread downloadThread = app.getDownloadThread();
 
 		for (final IndexItem indexItem : suggestedMaps) {
-			View view = UiUtilities.getInflater(app, nightMode).inflate(R.layout.list_item_icon_and_download, null);
-			AndroidUtils.setBackground(view, UiUtilities.getSelectableDrawable(app));
+			View view = UiUtilities.getInflater(themedCtx, nightMode).inflate(R.layout.list_item_icon_and_download, null);
+			AndroidUtils.setBackground(view, UiUtilities.getSelectableDrawable(themedCtx));
 
 			final ImageView secondaryIcon = view.findViewById(R.id.secondary_icon);
 			final ProgressBar progressBar = view.findViewById(R.id.ProgressBar);
@@ -278,6 +303,7 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 
 	private void updateItems() {
 		Activity activity = getActivity();
+		Context themedCtx = UiUtilities.getThemedContext(activity, nightMode);
 		View mainView = getView();
 		if (activity != null && mainView != null) {
 			LinearLayout itemsContainer = (LinearLayout) mainView.findViewById(useScrollableItemsContainer()
@@ -288,7 +314,7 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 			items.clear();
 			createMenuItems(null);
 			for (BaseBottomSheetItem item : items) {
-				item.inflate(activity, itemsContainer, nightMode);
+				item.inflate(themedCtx, itemsContainer, nightMode);
 			}
 			setupHeightAndBackground(mainView);
 		}
@@ -296,15 +322,23 @@ public class PluginInstalledBottomSheetDialog extends MenuBottomSheetDialogFragm
 
 	public static void showInstance(@NonNull FragmentManager fm, String pluginId, Boolean usedOnMap) {
 		try {
-			Bundle args = new Bundle();
-			args.putString(PLUGIN_ID_KEY, pluginId);
+			if (!fm.isStateSaved()) {
+				Bundle args = new Bundle();
+				args.putString(PLUGIN_ID_KEY, pluginId);
 
-			PluginInstalledBottomSheetDialog dialog = new PluginInstalledBottomSheetDialog();
-			dialog.setArguments(args);
-			dialog.setUsedOnMap(usedOnMap);
-			dialog.show(fm, PluginInstalledBottomSheetDialog.TAG);
+				PluginInstalledBottomSheetDialog dialog = new PluginInstalledBottomSheetDialog();
+				dialog.setArguments(args);
+				dialog.setUsedOnMap(usedOnMap);
+				dialog.show(fm, PluginInstalledBottomSheetDialog.TAG);
+			}
 		} catch (RuntimeException e) {
 			LOG.error("showInstance", e);
 		}
+	}
+
+	public interface PluginStateListener {
+
+		void onPluginStateChanged(OsmandPlugin plugin);
+
 	}
 }

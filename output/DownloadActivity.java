@@ -9,17 +9,6 @@ import android.content.pm.PackageManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.StatFs;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.annotation.UiThread;
-import android.support.v4.app.ActivityCompat.OnRequestPermissionsResultCallback;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentActivity;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.view.ViewPager;
-import android.support.v4.widget.Space;
-import android.support.v7.app.AlertDialog;
 import android.text.method.LinkMovementMethod;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
@@ -31,10 +20,21 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.Space;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import net.osmand.IProgress;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.UiThread;
+import androidx.appcompat.app.AlertDialog;
+import androidx.core.app.ActivityCompat.OnRequestPermissionsResultCallback;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
+import androidx.viewpager.widget.ViewPager;
+
+import net.osmand.AndroidUtils;
 import net.osmand.IndexConstants;
 import net.osmand.PlatformUtil;
 import net.osmand.access.AccessibilityAssistant;
@@ -43,7 +43,6 @@ import net.osmand.data.PointDescription;
 import net.osmand.map.WorldRegion;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.Version;
 import net.osmand.plus.activities.LocalIndexInfo;
@@ -62,6 +61,8 @@ import net.osmand.plus.helpers.FileNameTranslationHelper;
 import net.osmand.plus.inapp.InAppPurchaseHelper;
 import net.osmand.plus.inapp.InAppPurchaseHelper.InAppPurchaseTaskType;
 import net.osmand.plus.openseamapsplugin.NauticalMapsPlugin;
+import net.osmand.plus.settings.backend.OsmandSettings;
+import net.osmand.plus.download.ReloadIndexesTask.ReloadIndexesListener;
 import net.osmand.plus.srtmplugin.SRTMPlugin;
 import net.osmand.plus.views.controls.PagerSlidingTabStrip;
 import net.osmand.util.Algorithms;
@@ -70,11 +71,9 @@ import org.apache.commons.logging.Log;
 
 import java.io.File;
 import java.lang.ref.WeakReference;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -103,9 +102,8 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 	public static final String DOWNLOAD_TAB = "download";
 	public static final String UPDATES_TAB = "updates";
 	public static final String REGION_TO_SEARCH = "search_region";
-	public static final MessageFormat formatGb = new MessageFormat("{0, number,#.##} GB", Locale.US);
-	public static final MessageFormat formatMb = new MessageFormat("{0, number,##.#} MB", Locale.US);
-	public static final MessageFormat formatKb = new MessageFormat("{0, number,##.#} kB", Locale.US);
+
+
 	private static boolean SUGGESTED_TO_DOWNLOAD_BASEMAP = false;
 
 	private BannerAndDownloadFreeVersion visibleBanner;
@@ -197,8 +195,14 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 		if (intent != null && intent.getExtras() != null) {
 			String region = getIntent().getStringExtra(REGION_TO_SEARCH);
 			if (region != null && !region.isEmpty()) {
-				showDialog(this, SearchDialogFragment.createInstance(region,
-						getIntent().getBooleanExtra(SHOW_WIKI_KEY, false)));
+				if (getIntent().getBooleanExtra(SHOW_WIKI_KEY, false)) {
+					showDialog(this, SearchDialogFragment.createInstance(
+							region, true, DownloadActivityType.NORMAL_FILE,
+							DownloadActivityType.WIKIPEDIA_FILE));
+				} else {
+					showDialog(this, SearchDialogFragment.createInstance(
+							region, true, DownloadActivityType.NORMAL_FILE));
+				}
 			}
 			filter = intent.getExtras().getString(FILTER_KEY);
 			filterCat = intent.getExtras().getString(FILTER_CAT);
@@ -384,8 +388,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 		return !Version.isPaidVersion(application)
 				|| application.getSettings().SHOULD_SHOW_FREE_VERSION_BANNER.get();
 	}
-	
-	
+
 	public static class FreeVersionBanner {
 		private final View freeVersionBanner;
 		private final View freeVersionBannerTitle;
@@ -436,7 +439,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			freeVersionBanner.setVisibility(View.VISIBLE);
 			downloadsLeftProgressBar.setMax(DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS);
 			freeVersionDescriptionTextView.setText(ctx.getString(R.string.free_version_message,
-					DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS +"" ));
+					DownloadValidationManager.MAXIMUM_AVAILABLE_FREE_DOWNLOADS + ""));
 
 			LinearLayout marksLinearLayout = (LinearLayout) freeVersionBanner.findViewById(R.id.marksLinearLayout);
 			Space spaceView = new Space(ctx);
@@ -488,6 +491,7 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 				freeVersionBannerTitle.setVisibility(View.VISIBLE);
 			}
 		}
+
 		private void updateAvailableDownloads() {
 			int activeTasks = ctx.getDownloadThread().getCountedDownloads();
 			OsmandSettings settings = ctx.getMyApplication().getSettings();
@@ -565,45 +569,25 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 		}
 	}
 
-	@SuppressLint("StaticFieldLeak")
 	public void reloadLocalIndexes() {
-		AsyncTask<Void, String, List<String>> task = new AsyncTask<Void, String, List<String>>() {
+		final OsmandApplication app = (OsmandApplication) getApplication();
+		ReloadIndexesTask reloadIndexesTask = new ReloadIndexesTask(app, new ReloadIndexesListener() {
 			@Override
-			protected void onPreExecute() {
-				super.onPreExecute();
+			public void reloadIndexesStarted() {
 				setSupportProgressBarIndeterminateVisibility(true);
 			}
 
 			@Override
-			protected List<String> doInBackground(Void... params) {
-				return getMyApplication().getResourceManager().reloadIndexes(IProgress.EMPTY_PROGRESS,
-						new ArrayList<String>()
-				);
-			}
-
-			@Override
-			protected void onPostExecute(List<String> warnings) {
+			public void reloadIndexesFinished(List<String> warnings) {
 				setSupportProgressBarIndeterminateVisibility(false);
-				if (!warnings.isEmpty()) {
-					final StringBuilder b = new StringBuilder();
-					boolean f = true;
-					for (String w : warnings) {
-						if (f) {
-							f = false;
-						} else {
-							b.append('\n');
-						}
-						b.append(w);
-					}
-					Toast.makeText(DownloadActivity.this, b.toString(), Toast.LENGTH_LONG).show();
+				if (!Algorithms.isEmpty(warnings)) {
+					app.showToastMessage(AndroidUtils.formatWarnings(warnings).toString());
 				}
 				newDownloadIndexes();
 			}
-		};
-		task.executeOnExecutor(singleThreadExecutor);
+		});
+		reloadIndexesTask.executeOnExecutor(singleThreadExecutor);
 	}
-
-	
 
 	public void setDownloadItem(WorldRegion region, String targetFileName) {
 		if (downloadItem == null) {
@@ -627,7 +611,8 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 			return;
 		}
 		IndexItem worldMap = getDownloadThread().getIndexes().getWorldBaseMapItem();
-		if (!SUGGESTED_TO_DOWNLOAD_BASEMAP && worldMap != null && (!worldMap.isDownloaded() || worldMap.isOutdated()) &&
+		// (!worldMap.isDownloaded() || worldMap.isOutdated()) - now suggest to download if downloaded 
+		if (!SUGGESTED_TO_DOWNLOAD_BASEMAP && worldMap != null && worldMap.isDownloaded() && worldMap.isOutdated() &&
 				!getDownloadThread().isDownloading(worldMap)) {
 			SUGGESTED_TO_DOWNLOAD_BASEMAP = true;
 			AskMapDownloadFragment fragment = new AskMapDownloadFragment();
@@ -666,12 +651,12 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 		ProgressBar sizeProgress = (ProgressBar) view.findViewById(R.id.progressBar);
 
 		File dir = activity.getMyApplication().getAppPath("").getParentFile();
-		String size = formatGb.format(new Object[]{0});
+		String size = "";
 		int percent = 0;
 		if (dir.canRead()) {
 			StatFs fs = new StatFs(dir.getAbsolutePath());
-			size = formatGb.format(new Object[]{(float) (fs.getAvailableBlocks()) * fs.getBlockSize() / (1 << 30)});
-			percent = 100 - fs.getAvailableBlocks() * 100 / fs.getBlockCount();
+			size = AndroidUtils.formatSize(activity, ((long) fs.getAvailableBlocks()) * fs.getBlockSize());
+			percent = 100 - (int) ((long) fs.getAvailableBlocks() * 100 / fs.getBlockCount());
 		}
 		sizeProgress.setIndeterminate(false);
 		sizeProgress.setProgress(percent);
@@ -833,15 +818,18 @@ public class DownloadActivity extends AbstractDownloadActivity implements Downlo
 					.setOnClickListener(new OnClickListener() {
 						@Override
 						public void onClick(View v) {
-							OsmandApplication app = (OsmandApplication) getActivity().getApplication();
-							app.getSettings().setMapLocationToShow(
-									regionCenter.getLatitude(),
-									regionCenter.getLongitude(),
-									5,
-									new PointDescription(PointDescription.POINT_TYPE_WORLD_REGION_SHOW_ON_MAP, ""));
+							FragmentActivity activity = getActivity();
+							if (activity != null && regionCenter != null) {
+								OsmandApplication app = (OsmandApplication) activity.getApplication();
+								app.getSettings().setMapLocationToShow(
+										regionCenter.getLatitude(),
+										regionCenter.getLongitude(),
+										5,
+										new PointDescription(PointDescription.POINT_TYPE_WORLD_REGION_SHOW_ON_MAP, ""));
 
-							dismiss();
-							MapActivity.launchMapActivityMoveToTop(getActivity());
+								dismiss();
+								MapActivity.launchMapActivityMoveToTop(activity);
+							}
 						}
 					});
 

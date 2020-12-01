@@ -2,13 +2,7 @@ package net.osmand.plus.dialogs;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.os.Bundle;
-import android.support.annotation.ColorInt;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.widget.CompoundButtonCompat;
-import android.support.v4.widget.NestedScrollView;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,7 +12,11 @@ import android.widget.RadioButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import net.osmand.AndroidUtils;
+import androidx.annotation.ColorInt;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.widget.NestedScrollView;
+
 import net.osmand.Collator;
 import net.osmand.OsmAndCollator;
 import net.osmand.plus.OsmandApplication;
@@ -31,16 +29,19 @@ import net.osmand.plus.base.bottomsheetmenu.BaseBottomSheetItem;
 import net.osmand.plus.base.bottomsheetmenu.BottomSheetItemTitleWithDescrAndButton;
 import net.osmand.plus.base.bottomsheetmenu.simpleitems.SubtitleDividerItem;
 import net.osmand.plus.base.bottomsheetmenu.simpleitems.TitleItem;
-import net.osmand.plus.openseamapsplugin.NauticalMapsPlugin;
 import net.osmand.plus.render.RendererRegistry;
 import net.osmand.plus.views.OsmandMapTileView;
 import net.osmand.render.RenderingRulesStorage;
+import net.osmand.util.Algorithms;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+
+import static net.osmand.plus.UiUtilities.CompoundButtonType.PROFILE_DEPENDENT;
 
 public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDialogFragment {
 
@@ -176,11 +177,21 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 				return collator.compare(string1, string2);
 			}
 		});
+		Map<String, String> renderers = getMyApplication().getRendererRegistry().getRenderers();
+		List<String> disabledRendererNames = OsmandPlugin.getDisabledRendererNames();
 
-		List<String> names = new ArrayList<>(getMyApplication().getRendererRegistry().getRendererNames());
-		if (OsmandPlugin.getEnabledPlugin(NauticalMapsPlugin.class) == null) {
-			names.remove(RendererRegistry.NAUTICAL_RENDER);
+		if (!Algorithms.isEmpty(disabledRendererNames)) {
+			Iterator<Map.Entry<String, String>> iterator = renderers.entrySet().iterator();
+			while (iterator.hasNext()) {
+				String rendererVal = iterator.next().getValue();
+				String rendererFileName = Algorithms.getFileWithoutDirs(rendererVal);
+				if (disabledRendererNames.contains(rendererFileName)) {
+					iterator.remove();
+				}
+			}
 		}
+
+		List<String> names = new ArrayList<>(renderers.keySet());
 		for (String name : names) {
 			String translation = RendererRegistry.getTranslatedRendererName(context, name);
 			if (translation == null) {
@@ -213,7 +224,7 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 
 			RadioButton rb = (RadioButton) view.findViewById(R.id.compound_button);
 			rb.setChecked(selected);
-			UiUtilities.setupCompoundButton(getMyApplication(), rb, nightMode, true);
+			UiUtilities.setupCompoundButton(rb, nightMode, PROFILE_DEPENDENT);
 
 			counter++;
 		}
@@ -222,7 +233,7 @@ public class SelectMapStyleBottomSheetDialogFragment extends MenuBottomSheetDial
 	@ColorInt
 	private int getStyleTitleColor(boolean selected) {
 		int colorId = selected
-				? getMyApplication() != null ? getMyApplication().getSettings().APPLICATION_MODE.get().getIconColorInfo().getColor(nightMode) : getActiveColorId()
+				? getActiveColorId()
 				: nightMode ? R.color.text_color_primary_dark : R.color.text_color_primary_light;
 		return getResolvedColor(colorId);
 	}

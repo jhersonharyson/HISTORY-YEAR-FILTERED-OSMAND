@@ -4,29 +4,30 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.CompoundButton;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import net.osmand.AndroidUtils;
 import net.osmand.plus.ContextMenuAdapter;
 import net.osmand.plus.ContextMenuItem;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.CommonPreference;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.views.AidlMapLayer;
-import net.osmand.plus.views.MapInfoLayer;
 import net.osmand.plus.views.OsmandMapLayer;
-import net.osmand.plus.views.mapwidgets.MapWidgetRegistry;
-import net.osmand.plus.views.mapwidgets.TextInfoWidget;
+import net.osmand.plus.views.layers.AidlMapLayer;
+import net.osmand.plus.views.layers.MapInfoLayer;
+import net.osmand.plus.views.mapwidgets.widgets.TextInfoWidget;
 import net.osmand.util.Algorithms;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static net.osmand.aidlapi.OsmAndCustomizationConstants.CONFIGURE_MAP_ITEM_ID_SCHEME;
 
 public class ConnectedApp implements Comparable<ConnectedApp> {
 
@@ -53,7 +54,7 @@ public class ConnectedApp implements Comparable<ConnectedApp> {
 	private Map<String, AidlMapLayerWrapper> layers = new ConcurrentHashMap<>();
 	private Map<String, OsmandMapLayer> mapLayers = new ConcurrentHashMap<>();
 
-	private OsmandSettings.CommonPreference<Boolean> layersPref;
+	private CommonPreference<Boolean> layersPref;
 
 	private String pack;
 	private String name;
@@ -156,7 +157,7 @@ public class ConnectedApp implements Comparable<ConnectedApp> {
 		};
 		boolean layersEnabled = layersPref.get();
 		menuAdapter.addItem(new ContextMenuItem.ItemBuilder()
-				.setId(AIDL_LAYERS_PREFIX + pack)
+				.setId(CONFIGURE_MAP_ITEM_ID_SCHEME + AIDL_LAYERS_PREFIX + pack)
 				.setTitle(name)
 				.setListener(listener)
 				.setSelected(layersEnabled)
@@ -171,18 +172,23 @@ public class ConnectedApp implements Comparable<ConnectedApp> {
 			if (layer != null) {
 				TextInfoWidget control = createWidgetControl(mapActivity, widget.getId());
 				widgetControls.put(widget.getId(), control);
-				int menuIconId = AndroidUtils.getDrawableId(mapActivity.getMyApplication(), widget.getMenuIconName());
-				MapWidgetRegistry.MapWidgetRegInfo widgetInfo = layer.registerSideWidget(control, menuIconId,
-						widget.getMenuTitle(), "aidl_widget_" + widget.getId(), false, widget.getOrder());
-				if (!mapActivity.getMapLayers().getMapWidgetRegistry().isVisible(widgetInfo.key)) {
-					mapActivity.getMapLayers().getMapWidgetRegistry().setVisibility(widgetInfo, true, false);
-				}
+				int iconId = AndroidUtils.getDrawableId(mapActivity.getMyApplication(), widget.getMenuIconName());
+				int menuIconId = iconId != 0 ? iconId : ContextMenuItem.INVALID_ID;
+				String widgetKey = "aidl_widget_" + widget.getId();
+				layer.registerSideWidget(control, menuIconId, widget.getMenuTitle(), widgetKey, false, widget.getOrder());
 			}
 		}
 	}
 
 	TextInfoWidget createWidgetControl(final MapActivity mapActivity, final String widgetId) {
 		TextInfoWidget control = new TextInfoWidget(mapActivity) {
+
+			private boolean init = true;
+			private String cachedTxt;
+			private String cachedSubtext;
+			private Boolean cachedNight;
+			private Integer cachedIcon;
+
 			@Override
 			public boolean updateInfo(OsmandMapLayer.DrawSettings drawSettings) {
 				AidlMapWidgetWrapper widget = widgets.get(widgetId);
@@ -191,15 +197,28 @@ public class ConnectedApp implements Comparable<ConnectedApp> {
 					String subtext = widget.getDescription();
 					boolean night = drawSettings != null && drawSettings.isNightMode();
 					int icon = AndroidUtils.getDrawableId(mapActivity.getMyApplication(), night ? widget.getDarkIconName() : widget.getLightIconName());
-					setText(txt, subtext);
-					if (icon != 0) {
-						setImageDrawable(icon);
-					} else {
-						setImageDrawable(null);
+					if (init || !Algorithms.objectEquals(txt, cachedTxt) || !Algorithms.objectEquals(subtext, cachedSubtext)
+							|| !Algorithms.objectEquals(night, cachedNight) || !Algorithms.objectEquals(icon, cachedIcon)) {
+						init = false;
+						cachedTxt = txt;
+						cachedSubtext = subtext;
+						cachedNight = night;
+						cachedIcon = icon;
+
+						setText(txt, subtext);
+						if (icon != 0) {
+							setImageDrawable(icon);
+						} else {
+							setImageDrawable(null);
+						}
+						return true;
 					}
+					return false;
+				} else {
+					setText(null, null);
+					setImageDrawable(null);
 					return true;
 				}
-				return false;
 			}
 		};
 		control.updateInfo(null);

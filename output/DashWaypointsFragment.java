@@ -2,9 +2,6 @@ package net.osmand.plus.dashboard;
 
 import android.content.DialogInterface;
 import android.os.Bundle;
-import android.support.annotation.Nullable;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.widget.PopupMenu;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.View;
@@ -14,6 +11,10 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.PopupMenu;
 
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
@@ -179,7 +180,7 @@ public class DashWaypointsFragment extends DashLocationFragment {
 		MenuItem item; 
 //		item = optionsMenu.getMenu().add(
 //				R.string.shared_string_add_to_favorites).setIcon(getMyApplication().getIconsCache().
-//						getIcon(R.drawable.ic_action_fav_dark));
+//						getIcon(R.drawable.ic_action_favorite));
 //		item.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
 //			@Override
 //			public boolean onMenuItemClick(MenuItem item) {

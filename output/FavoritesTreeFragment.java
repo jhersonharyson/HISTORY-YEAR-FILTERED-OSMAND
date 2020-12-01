@@ -1,23 +1,14 @@
 package net.osmand.plus.activities;
 
-import static net.osmand.plus.myplaces.FavoritesActivity.FAV_TAB;
-import static net.osmand.plus.myplaces.FavoritesActivity.TAB_ID;
-
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.view.MenuItemCompat;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.view.ActionMode;
 import android.text.Html;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -25,28 +16,38 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AbsListView;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.ExpandableListView;
 import android.widget.Filter;
 import android.widget.Filterable;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.appcompat.view.ActionMode;
+import androidx.core.content.ContextCompat;
+
 import net.osmand.AndroidUtils;
+import net.osmand.Location;
 import net.osmand.data.FavouritePoint;
 import net.osmand.data.LatLon;
 import net.osmand.data.PointDescription;
 import net.osmand.plus.FavouritesDbHelper;
 import net.osmand.plus.FavouritesDbHelper.FavoriteGroup;
 import net.osmand.plus.FavouritesDbHelper.FavoritesListener;
-import net.osmand.plus.MapMarkersHelper;
-import net.osmand.plus.OsmAndFormatter;
+import net.osmand.plus.mapmarkers.MapMarkersHelper;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandPreference;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
-import net.osmand.plus.base.FavoriteImageDrawable;
+import net.osmand.plus.UiUtilities;
+import net.osmand.plus.base.PointImageDrawable;
 import net.osmand.plus.base.OsmandExpandableListFragment;
 import net.osmand.plus.helpers.AndroidUiHelper;
 import net.osmand.plus.helpers.FontCache;
@@ -67,9 +68,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static android.view.Gravity.CENTER;
+import static net.osmand.plus.OsmAndLocationProvider.*;
+import static net.osmand.plus.myplaces.FavoritesActivity.FAV_TAB;
+import static net.osmand.plus.myplaces.FavoritesActivity.TAB_ID;
 
-public class FavoritesTreeFragment extends OsmandExpandableListFragment implements
-	FavoritesFragmentStateHolder {
+
+public class FavoritesTreeFragment extends OsmandExpandableListFragment implements FavoritesFragmentStateHolder,
+		OsmAndCompassListener, OsmAndLocationListener {
+
 	public static final int SEARCH_ID = -1;
 	//	public static final int EXPORT_ID = 0;
 	// public static final int IMPORT_ID = 1;
@@ -81,7 +88,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 	public static final int IMPORT_FAVOURITES_ID = 7;
 	public static final String GROUP_EXPANDED_POSTFIX = "_group_expanded";
 
-	private FavouritesAdapter favouritesAdapter = new FavouritesAdapter();
+	private FavouritesAdapter favouritesAdapter;
 	private FavouritesDbHelper helper;
 
 	private OsmandApplication app;
@@ -89,22 +96,26 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 	private LinkedHashMap<String, Set<FavouritePoint>> favoritesSelected = new LinkedHashMap<>();
 	private Set<FavoriteGroup> groupsToDelete = new LinkedHashSet<>();
 	private ActionMode actionMode;
-	Drawable arrowImage;
-	Drawable arrowImageDisabled;
-	private HashMap<String, OsmandSettings.OsmandPreference<Boolean>> preferenceCache = new HashMap<>();
+	private Drawable arrowImageDisabled;
+	private HashMap<String, OsmandPreference<Boolean>> preferenceCache = new HashMap<>();
 	private View footerView;
+	private Location lastLocation;
+	private float lastHeading;
 
 	private int selectedGroupPos = -1;
 	private int selectedChildPos = -1;
 
 	private FavoritesListener favoritesListener;
-	
-	String groupNameToShow = null;
-	
+
+	private String groupNameToShow = null;
+	private boolean compassUpdateAllowed = true;
+	private boolean locationUpdateStarted;
+
 	@Override
 	public void onAttach(Context context) {
 		super.onAttach(context);
 		this.app = (OsmandApplication) getActivity().getApplication();
+		favouritesAdapter = new FavouritesAdapter();
 
 		helper = getMyApplication().getFavorites();
 		if (helper.isFavoritesLoaded()) {
@@ -117,24 +128,19 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				}
 
 				@Override
-				public void onFavoriteAddressResolved(@NonNull FavouritePoint favouritePoint) {
+				public void onFavoriteDataUpdated(@NonNull FavouritePoint favouritePoint) {
+					favouritesAdapter.notifyDataSetChanged();
 				}
 			});
 		}
 		setAdapter(favouritesAdapter);
 
 		boolean light = getMyApplication().getSettings().isLightContent();
-		arrowImage = ContextCompat.getDrawable(context, R.drawable.ic_direction_arrow);
-		arrowImage.mutate();
-		if (light) {
-			arrowImage.setColorFilter(ContextCompat.getColor(context, R.color.color_distance), PorterDuff.Mode.MULTIPLY);
-		} else {
-			arrowImage.setColorFilter(ContextCompat.getColor(context, R.color.color_distance), PorterDuff.Mode.MULTIPLY);
-		}
-		arrowImageDisabled = ContextCompat.getDrawable(context, R.drawable.ic_direction_arrow);
+		arrowImageDisabled = AppCompatResources.getDrawable(context, R.drawable.ic_direction_arrow);
 		arrowImageDisabled.mutate();
 		arrowImageDisabled.setColorFilter(ContextCompat.getColor(
 				context, light ? R.color.icon_color_default_light : R.color.icon_color_default_dark), PorterDuff.Mode.MULTIPLY);
+
 	}
 
 	private void deleteFavorites() {
@@ -173,8 +179,8 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			View searchView = inflater.inflate(R.layout.search_fav_list_item, null);
 			searchView.setBackgroundResource(light ? R.color.list_background_color_light : R.color.list_background_color_dark);
 			TextView title = (TextView) searchView.findViewById(R.id.title);
-			title.setCompoundDrawablesWithIntrinsicBounds(getMyApplication().getUIUtilities().getThemedIcon(R.drawable.ic_action_search_dark), null, null, null);
-			title.setHint(R.string.shared_string_search);
+			Drawable searchIcon = getMyApplication().getUIUtilities().getThemedIcon(R.drawable.ic_action_search_dark);
+			AndroidUtils.setCompoundDrawablesWithIntrinsicBounds(title, searchIcon, null, null, null);
 			searchView.setOnClickListener(new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
@@ -182,7 +188,8 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				}
 			});
 			listView.addHeaderView(searchView);
-			listView.addHeaderView(inflater.inflate(R.layout.list_item_divider, null, false));
+			View dividerView = inflater.inflate(R.layout.list_item_divider, null, false);
+			listView.addHeaderView(dividerView, null, false);
 			footerView = inflater.inflate(R.layout.list_shadow_footer, null, false);
 			listView.addFooterView(footerView);
 		}
@@ -207,22 +214,30 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		listView.setOnGroupCollapseListener(new ExpandableListView.OnGroupCollapseListener() {
 			@Override
 			public void onGroupCollapse(int groupPosition) {
-				String groupName = favouritesAdapter.getGroup(groupPosition).name;
+				String groupName = favouritesAdapter.getGroup(groupPosition).getName();
 				getGroupExpandedPreference(groupName).set(false);
 			}
 		});
 		listView.setOnGroupExpandListener(new ExpandableListView.OnGroupExpandListener() {
 			@Override
 			public void onGroupExpand(int groupPosition) {
-				String groupName = favouritesAdapter.getGroup(groupPosition).name;
+				String groupName = favouritesAdapter.getGroup(groupPosition).getName();
 				getGroupExpandedPreference(groupName).set(true);
 			}
 		});
-		
+		listView.setOnScrollListener(new AbsListView.OnScrollListener() {
+			@Override
+			public void onScrollStateChanged(AbsListView view, int newState) {
+				compassUpdateAllowed = newState == AbsListView.OnScrollListener.SCROLL_STATE_IDLE;
+			}
+
+			@Override
+			public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+			}
+		});
 		if (getArguments() != null) {
 			groupNameToShow = getArguments().getString(GROUP_NAME_TO_SHOW);
 		}
-		
 		if (groupNameToShow != null) {
 			int groupPos = favouritesAdapter.getGroupPosition(groupNameToShow);
 			if (groupPos != -1) {
@@ -230,7 +245,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				int selection = listView.getHeaderViewsCount();
 				for (int i = 0; i < groupPos; i++) {
 					selection++; // because of group header
-					if (getGroupExpandedPreference(favouritesAdapter.getGroup(i).name).get()) {
+					if (getGroupExpandedPreference(favouritesAdapter.getGroup(i).getName()).get()) {
 						selection += favouritesAdapter.getChildrenCount(i);
 					}
 				}
@@ -249,6 +264,23 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 	}
 
 	@Override
+	public void updateLocation(Location location) {
+		if (!MapUtils.areLatLonEqual(lastLocation, location)) {
+			lastLocation = location;
+			updateLocationUi();
+		}
+	}
+
+	@Override
+	public void updateCompassValue(float heading) {
+		if (Math.abs(MapUtils.degreesDiff(lastHeading, heading)) > 5) {
+			lastHeading = heading;
+			updateLocationUi();
+		}
+	}
+
+
+	@Override
 	public void onResume() {
 		super.onResume();
 		favouritesAdapter.synchronizeGroups();
@@ -256,11 +288,51 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		if (groupNameToShow == null) {
 			restoreState(getArguments());
 		}
+
+		startLocationUpdate();
+	}
+
+	private void startLocationUpdate() {
+		OsmandApplication app = getMyApplication();
+		if (app != null && !locationUpdateStarted) {
+			locationUpdateStarted = true;
+			app.getLocationProvider().resumeAllUpdates();
+			app.getLocationProvider().removeCompassListener(app.getLocationProvider().getNavigationInfo());
+			app.getLocationProvider().addCompassListener(this);
+			app.getLocationProvider().addLocationListener(this);
+			updateLocationUi();
+		}
+	}
+
+	private void stopLocationUpdate() {
+		OsmandApplication app = getMyApplication();
+		if (app != null && locationUpdateStarted) {
+			locationUpdateStarted = false;
+			app.getLocationProvider().removeLocationListener(this);
+			app.getLocationProvider().removeCompassListener(this);
+			app.getLocationProvider().addCompassListener(app.getLocationProvider().getNavigationInfo());
+			app.getLocationProvider().pauseAllUpdates();
+		}
+	}
+
+	private void updateLocationUi() {
+		if (!compassUpdateAllowed) {
+			return;
+		}
+		if (app != null && favouritesAdapter != null) {
+			app.runInUIThread(new Runnable() {
+				@Override
+				public void run() {
+					favouritesAdapter.notifyDataSetChanged();
+				}
+			});
+		}
 	}
 
 	@Override
 	public void onPause() {
 		super.onPause();
+		stopLocationUpdate();
 		if (actionMode != null) {
 			actionMode.finish();
 		}
@@ -268,6 +340,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			helper.removeListener(favoritesListener);
 			favoritesListener = null;
 		}
+
 	}
 
 	private int getSelectedFavoritesCount() {
@@ -312,16 +385,16 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			FavoriteGroup group = favouritesAdapter.getGroup(groupPosition);
 			ch.setChecked(!ch.isChecked());
 			if (ch.isChecked()) {
-				Set<FavouritePoint> set = favoritesSelected.get(group.name);
+				Set<FavouritePoint> set = favoritesSelected.get(group.getName());
 				if (set != null) {
 					set.add(model);
 				} else {
 					set = new LinkedHashSet<>();
 					set.add(model);
-					favoritesSelected.put(group.name, set);
+					favoritesSelected.put(group.getName(), set);
 				}
 			} else {
-				Set<FavouritePoint> set = favoritesSelected.get(group.name);
+				Set<FavouritePoint> set = favoritesSelected.get(group.getName());
 				if (set != null) {
 					set.remove(model);
 				}
@@ -363,7 +436,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 	@Override
 	public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
 		menu.clear();
-		MenuItem mi = createMenuItem(menu, SEARCH_ID, R.string.search_poi_filter, R.drawable.ic_action_search_dark, MenuItemCompat.SHOW_AS_ACTION_ALWAYS | MenuItemCompat.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW);
+		MenuItem mi = createMenuItem(menu, SEARCH_ID, R.string.search_poi_filter, R.drawable.ic_action_search_dark, MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW);
 		mi.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
 			@Override
 			public boolean onMenuItemClick(MenuItem item) {
@@ -380,11 +453,11 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		((FavoritesActivity) getActivity()).updateListViewFooter(footerView);
 
 
-		if (!MenuItemCompat.isActionViewExpanded(mi)) {
-			createMenuItem(menu, IMPORT_FAVOURITES_ID, R.string.shared_string_add_to_favorites, R.drawable.ic_action_plus, MenuItemCompat.SHOW_AS_ACTION_ALWAYS);
-			createMenuItem(menu, SHARE_ID, R.string.shared_string_share, R.drawable.ic_action_gshare_dark, MenuItemCompat.SHOW_AS_ACTION_ALWAYS);
-			createMenuItem(menu, SELECT_MAP_MARKERS_ID, R.string.select_map_markers, R.drawable.ic_action_flag_dark, MenuItemCompat.SHOW_AS_ACTION_ALWAYS);
-			createMenuItem(menu, DELETE_ID, R.string.shared_string_delete, R.drawable.ic_action_delete_dark, MenuItemCompat.SHOW_AS_ACTION_ALWAYS);
+		if (!mi.isActionViewExpanded()) {
+			createMenuItem(menu, IMPORT_FAVOURITES_ID, R.string.shared_string_add_to_favorites, R.drawable.ic_action_plus, MenuItem.SHOW_AS_ACTION_ALWAYS);
+			createMenuItem(menu, SHARE_ID, R.string.shared_string_share, R.drawable.ic_action_gshare_dark, MenuItem.SHOW_AS_ACTION_ALWAYS, true);
+			createMenuItem(menu, SELECT_MAP_MARKERS_ID, R.string.select_map_markers, R.drawable.ic_action_flag, MenuItem.SHOW_AS_ACTION_ALWAYS);
+			createMenuItem(menu, DELETE_ID, R.string.shared_string_delete, R.drawable.ic_action_delete_dark, MenuItem.SHOW_AS_ACTION_ALWAYS);
 		}
 	}
 
@@ -410,8 +483,8 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			public boolean onCreateActionMode(ActionMode mode, Menu menu) {
 				enableSelectionMode(true);
 				createMenuItem(menu, SELECT_MAP_MARKERS_ACTION_MODE_ID, R.string.select_map_markers,
-						R.drawable.ic_action_flag_dark,
-						MenuItemCompat.SHOW_AS_ACTION_IF_ROOM);
+						R.drawable.ic_action_flag,
+						MenuItem.SHOW_AS_ACTION_IF_ROOM);
 				favoritesSelected.clear();
 				groupsToDelete.clear();
 				favouritesAdapter.notifyDataSetInvalidated();
@@ -448,9 +521,9 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			List<LatLon> points = new ArrayList<>();
 			List<PointDescription> names = new ArrayList<>();
 			for (Map.Entry<String, Set<FavouritePoint>> entry : favoritesSelected.entrySet()) {
-				FavoriteGroup favGr = helper.getGroup(entry.getKey());
-				if (entry.getValue().size() == favGr.points.size()) {
-					markersHelper.addOrEnableGroup(favGr);
+				FavoriteGroup group = helper.getGroup(entry.getKey());
+				if (group != null && entry.getValue().size() == group.getPoints().size()) {
+					markersHelper.addOrEnableGroup(group);
 				} else {
 					for (FavouritePoint fp : entry.getValue()) {
 						points.add(new LatLon(fp.getLatitude(), fp.getLongitude()));
@@ -474,7 +547,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				enableSelectionMode(true);
 				createMenuItem(menu, DELETE_ACTION_ID, R.string.shared_string_delete,
 						R.drawable.ic_action_delete_dark,
-						MenuItemCompat.SHOW_AS_ACTION_IF_ROOM);
+						MenuItem.SHOW_AS_ACTION_IF_ROOM);
 				favoritesSelected.clear();
 				groupsToDelete.clear();
 				favouritesAdapter.notifyDataSetInvalidated();
@@ -537,12 +610,15 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		StringBuilder html = new StringBuilder();
 		html.append("<h1>My Favorites</h1>");
 		for (FavoriteGroup group : groups) {
-			html.append("<h3>" + group.name + "</h3>");
-			for (FavouritePoint fp : group.points) {
+			html.append("<h3>" + group.getDisplayName(app) + "</h3>");
+			for (FavouritePoint fp : group.getPoints()) {
 				String url = "geo:" + ((float) fp.getLatitude()) + "," + ((float) fp.getLongitude()) + "?m=" + fp.getName();
-				html.append("<p>" + fp.getName() + " - " + "<a href=\"" + url + "\">geo:"
+				html.append("<p>" + fp.getDisplayName(app) + " - " + "<a href=\"" + url + "\">geo:"
 						+ ((float) fp.getLatitude()) + "," + ((float) fp.getLongitude()) + "</a><br>");
-
+				if (fp.isAddressSpecified()) {
+					html.append(": " + fp.getAddress());
+					html.append("<br>");
+				}
 				if (!Algorithms.isEmpty(fp.getDescription())) {
 					html.append(": " + fp.getDescription());
 				}
@@ -587,7 +663,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			@Override
 			protected Void doInBackground(Void... params) {
 				if (group != null) {
-					helper.saveFile(group.points, dst);
+					helper.saveFile(group.getPoints(), dst);
 				}
 				return null;
 			}
@@ -679,7 +755,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 
 	private void initListExpandedState() {
 		for (int i = 0; i < favouritesAdapter.getGroupCount(); i++) {
-			String groupName = favouritesAdapter.getGroup(i).name;
+			String groupName = favouritesAdapter.getGroup(i).getName();
 			if (getGroupExpandedPreference(groupName).get()) {
 				listView.expandGroup(i);
 			} else {
@@ -688,8 +764,8 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		}
 	}
 
-	private OsmandSettings.OsmandPreference<Boolean> getGroupExpandedPreference(String groupName) {
-		OsmandSettings.OsmandPreference<Boolean> preference = preferenceCache.get(groupName);
+	private OsmandPreference<Boolean> getGroupExpandedPreference(String groupName) {
+		OsmandPreference<Boolean> preference = preferenceCache.get(groupName);
 		if (preference == null) {
 			String groupKey = groupName + GROUP_EXPANDED_POSTFIX;
 			preference = getSettings().registerBooleanPreference(groupKey, false);
@@ -704,8 +780,9 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		selectedGroupPos = groupPos;
 		selectedChildPos = childPos;
 		LatLon location = new LatLon(point.getLatitude(), point.getLongitude());
+		String pointType = PointDescription.POINT_TYPE_FAVORITE;
 		FavoritesActivity.showOnMap(requireActivity(), this, location.getLatitude(), location.getLongitude(),
-				settings.getLastKnownMapZoom(), new PointDescription(PointDescription.POINT_TYPE_FAVORITE, point.getName(app)), true, point);
+				settings.getLastKnownMapZoom(), new PointDescription(pointType, point.getDisplayName(app)), true, point);
 	}
 
 	@Override
@@ -741,6 +818,11 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		List<FavoriteGroup> groups = new ArrayList<FavoriteGroup>();
 		Filter myFilter;
 		private Set<?> filter;
+		private UiUtilities.UpdateLocationViewCache cache;
+
+		FavouritesAdapter() {
+			cache = app.getUIUtilities().getUpdateLocationViewCache();
+		}
 
 		void synchronizeGroups() {
 			favoriteGroups.clear();
@@ -752,10 +834,10 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				boolean empty = true;
 				if (flt == null || flt.contains(key)) {
 					empty = false;
-					favoriteGroups.put(key, new ArrayList<>(key.points));
+					favoriteGroups.put(key, new ArrayList<>(key.getPoints()));
 				} else {
 					ArrayList<FavouritePoint> list = new ArrayList<>();
-					for (FavouritePoint p : key.points) {
+					for (FavouritePoint p : key.getPoints()) {
 						if (flt.contains(p)) {
 							list.add(p);
 							empty = false;
@@ -764,7 +846,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 					favoriteGroups.put(key, list);
 				}
 				if (!empty) {
-					if (key.visible) {
+					if (key.isVisible()) {
 						groups.add(key);
 					} else {
 						disablesGroups.add(key);
@@ -828,14 +910,14 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			OsmandApplication app = getMyApplication();
 			boolean light = app.getSettings().isLightContent();
 			final FavoriteGroup model = getGroup(groupPosition);
-			boolean visible = model.visible;
+			boolean visible = model.isVisible();
 			int enabledColor = light ? R.color.text_color_primary_light : R.color.text_color_primary_dark;
 			int disabledColor = light ? R.color.text_color_secondary_light : R.color.text_color_secondary_dark;
 			row.findViewById(R.id.group_divider).setVisibility(groupPosition == 0 ? View.GONE : View.VISIBLE);
-			int color = model.color == 0 || model.color == Color.BLACK ? getResources().getColor(R.color.color_favorite) : model.color;
-			if (!model.personal) {
+			int color = model.getColor() == 0 ? getResources().getColor(R.color.color_favorite) : model.getColor();
+			if (!model.isPersonal()) {
 				setCategoryIcon(app, app.getUIUtilities().getPaintedIcon(
-						R.drawable.ic_action_fav_dark, visible ? (color | 0xff000000) : getResources().getColor(disabledColor)),
+						R.drawable.ic_action_folder, visible ? color : getResources().getColor(disabledColor)),
 						groupPosition, isExpanded, row, light);
 			}
 			adjustIndicator(app, groupPosition, isExpanded, row, light);
@@ -847,7 +929,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			} else {
 				label.setTypeface(Typeface.DEFAULT, Typeface.ITALIC);
 			}
-			label.setText(model.name.length() == 0 ? getString(R.string.shared_string_favorites) : model.getName(app));
+			label.setText(model.getName().length() == 0 ? getString(R.string.shared_string_favorites) : model.getDisplayName(app));
 
 			if (selectionMode) {
 				final CheckBox ch = (CheckBox) row.findViewById(R.id.toggle_item);
@@ -857,21 +939,21 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				ch.setOnClickListener(new View.OnClickListener() {
 					@Override
 					public void onClick(View v) {
-						List<FavouritePoint> fvs = model.points;
+						List<FavouritePoint> fvs = model.getPoints();
 						if (ch.isChecked()) {
 							groupsToDelete.add(model);
 							if (fvs != null) {
-								Set<FavouritePoint> set = favoritesSelected.get(model.name);
+								Set<FavouritePoint> set = favoritesSelected.get(model.getName());
 								if (set != null) {
-									set.addAll(model.points);
+									set.addAll(model.getPoints());
 								} else {
-									set = new LinkedHashSet<>(model.points);
-									favoritesSelected.put(model.name, set);
+									set = new LinkedHashSet<>(model.getPoints());
+									favoritesSelected.put(model.getName(), set);
 								}
 							}
 						} else {
 							groupsToDelete.remove(model);
-							favoritesSelected.remove(model.name);
+							favoritesSelected.remove(model.getName());
 						}
 						favouritesAdapter.notifyDataSetInvalidated();
 						updateSelectionMode(actionMode);
@@ -885,14 +967,14 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 			}
 			final View ch = row.findViewById(R.id.options);
 			if (!selectionMode) {
-				if (!model.personal) {
+				if (!model.isPersonal()) {
 					((ImageView) ch).setImageDrawable(getMyApplication().getUIUtilities().getThemedIcon(R.drawable.ic_overflow_menu_white));
 					ch.setVisibility(View.VISIBLE);
 					ch.setContentDescription(getString(R.string.shared_string_settings));
 					ch.setOnClickListener(new View.OnClickListener() {
 						@Override
 						public void onClick(View v) {
-							EditFavoriteGroupDialogFragment.showInstance(getChildFragmentManager(), model.name);
+							EditFavoriteGroupDialogFragment.showInstance(getChildFragmentManager(), model.getName());
 						}
 
 					});
@@ -921,6 +1003,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 
 			TextView name = (TextView) row.findViewById(R.id.favourite_label);
 			TextView distanceText = (TextView) row.findViewById(R.id.distance);
+			TextView addressText = (TextView) row.findViewById(R.id.group_name);
 			ImageView icon = (ImageView) row.findViewById(R.id.favourite_icon);
 
 			final FavouritePoint model = getChild(groupPosition, childPosition);
@@ -941,63 +1024,54 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 					}
 				});
 			}
-			LatLon lastKnownMapLocation = getMyApplication().getSettings().getLastKnownMapLocation();
-			int dist = (int) (MapUtils.getDistance(model.getLatitude(), model.getLongitude(),
-					lastKnownMapLocation.getLatitude(), lastKnownMapLocation.getLongitude()));
-			String distance = OsmAndFormatter.getFormattedDistance(dist, getMyApplication()) + "  ";
-			name.setText(model.getName(), TextView.BufferType.SPANNABLE);
+			name.setText(model.getDisplayName(app), TextView.BufferType.SPANNABLE);
 			name.setTypeface(Typeface.DEFAULT, visible ? Typeface.NORMAL : Typeface.ITALIC);
 			name.setTextColor(getResources().getColor(visible ? enabledColor : disabledColor));
-			distanceText.setText(distance);
-			if (model.isPersonal()) {
-				String distanceWithAddress = String.format(getString(R.string.distance_and_address), distance.trim(), model.getDescription() != null ? model.getDescription() : "");
-				distanceText.setText(distanceWithAddress);
-				icon.setImageDrawable(FavoriteImageDrawable.getOrCreate(getActivity(),
-						visible ? model.getColor() : getResources().getColor(disabledIconColor), false,
-						FavouritePoint.PointType.valueOfTypeName(model.getName())));
-				name.setText((model.getName(app)));
-			} else {
-				icon.setImageDrawable(FavoriteImageDrawable.getOrCreate(getActivity(),
-						visible ? model.getColor() : getResources().getColor(disabledIconColor), false));
-			}
-			if (visible) {
-				distanceText.setTextColor(getResources().getColor(R.color.color_distance));
-			} else {
-				distanceText.setTextColor(getResources().getColor(disabledColor));
-			}
+			addressText.setText(model.isAddressSpecified() ? model.getAddress() : null);
+			int color = visible
+					? app.getFavorites().getColorWithCategory(model, getResources().getColor(R.color.color_favorite))
+					: ContextCompat.getColor(app, disabledIconColor);
+			icon.setImageDrawable(PointImageDrawable.getFromFavorite(getActivity(), color, false, model));
+			int iconSize = (int) getResources().getDimension(R.dimen.favorites_my_places_icon_size);
+			FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(iconSize, iconSize, CENTER);
+			icon.setLayoutParams(lp);
 			row.findViewById(R.id.group_image).setVisibility(View.GONE);
 
 			ImageView direction = (ImageView) row.findViewById(R.id.direction);
+			app.getUIUtilities().updateLocationView(cache, direction, distanceText, model.getLatitude(), model.getLongitude());
+			if (model.isAddressSpecified()) {
+				String addComma = app.getString(R.string.ltr_or_rtl_combine_via_comma);
+				distanceText.setText(String.format(addComma, distanceText.getText(), ""));
+			}
 			direction.setVisibility(View.VISIBLE);
-			if (visible) {
-				direction.setImageDrawable(arrowImage);
-			} else {
+			if (!visible) {
+				distanceText.setTextColor(getResources().getColor(disabledColor));
 				direction.setImageDrawable(arrowImageDisabled);
 			}
 
 			final CheckBox ch = (CheckBox) row.findViewById(R.id.toggle_item);
 			if (selectionMode) {
 				ch.setVisibility(View.VISIBLE);
-				ch.setChecked(favoritesSelected.get(group.name) != null && favoritesSelected.get(group.name).contains(model));
+				ch.setChecked(favoritesSelected.get(group.getName()) != null && favoritesSelected.get(group.getName()).contains(model));
 				row.findViewById(R.id.favourite_icon).setVisibility(View.GONE);
 				ch.setOnClickListener(new View.OnClickListener() {
 
 					@Override
 					public void onClick(View v) {
 						if (ch.isChecked()) {
-							Set<FavouritePoint> set = favoritesSelected.get(group.name);
+							Set<FavouritePoint> set = favoritesSelected.get(group.getName());
 							if (set != null) {
 								set.add(model);
 							} else {
 								set = new LinkedHashSet<>();
 								set.add(model);
-								favoritesSelected.put(group.name, set);
+								favoritesSelected.put(group.getName(), set);
 							}
 						} else {
-							Set<FavouritePoint> set = favoritesSelected.get(group.name);
+							Set<FavouritePoint> set = favoritesSelected.get(group.getName());
 							if (set != null) {
 								groupsToDelete.remove(group);
-								getGroupPosition(group.name);
+								getGroupPosition(group.getName());
 								set.remove(model);
 								favouritesAdapter.notifyDataSetInvalidated();
 							}
@@ -1027,7 +1101,7 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 		public int getGroupPosition(String groupName) {
 			for (int i = 0; i < getGroupCount(); i++) {
 				FavoriteGroup group = getGroup(i);
-				if (group.name.equals(groupName)) {
+				if (group.getName().equals(groupName)) {
 					return i;
 				}
 			}
@@ -1051,10 +1125,10 @@ public class FavoritesTreeFragment extends OsmandExpandableListFragment implemen
 				Set<Object> filter = new HashSet<>();
 				String cs = constraint.toString().toLowerCase();
 				for (FavoriteGroup g : helper.getFavoriteGroups()) {
-					if (g.name.toLowerCase().contains(cs)) {
+					if (g.getName().toLowerCase().contains(cs)) {
 						filter.add(g);
 					} else {
-						for (FavouritePoint fp : g.points) {
+						for (FavouritePoint fp : g.getPoints()) {
 							if (fp.getName().toLowerCase().contains(cs)) {
 								filter.add(fp);
 							}

@@ -1,30 +1,9 @@
 package net.osmand.plus.activities.search;
 
-import java.util.List;
-
-import net.osmand.data.LatLon;
-import net.osmand.data.PointDescription;
-import net.osmand.plus.OsmAndFormatter;
-import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
-import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
-import net.osmand.plus.R;
-import net.osmand.plus.UiUtilities;
-import net.osmand.plus.UiUtilities.UpdateLocationViewCache;
-import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.activities.search.SearchActivity.SearchActivityChild;
-import net.osmand.plus.base.OsmAndListFragment;
-import net.osmand.plus.helpers.SearchHistoryHelper;
-import net.osmand.plus.helpers.SearchHistoryHelper.HistoryEntry;
-import net.osmand.util.MapUtils;
 import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
-import android.support.v4.app.FragmentActivity;
-import android.support.v4.view.ViewCompat;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.widget.PopupMenu;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -40,6 +19,29 @@ import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.TextView.BufferType;
+
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.PopupMenu;
+import androidx.core.view.ViewCompat;
+import androidx.fragment.app.FragmentActivity;
+
+import net.osmand.data.LatLon;
+import net.osmand.data.PointDescription;
+import net.osmand.plus.OsmAndFormatter;
+import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
+import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.settings.backend.OsmandSettings;
+import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
+import net.osmand.plus.UiUtilities.UpdateLocationViewCache;
+import net.osmand.plus.activities.MapActivity;
+import net.osmand.plus.activities.search.SearchActivity.SearchActivityChild;
+import net.osmand.plus.base.OsmAndListFragment;
+import net.osmand.plus.helpers.SearchHistoryHelper;
+import net.osmand.plus.helpers.SearchHistoryHelper.HistoryEntry;
+import net.osmand.util.MapUtils;
+
+import java.util.List;
 
 
 public class SearchHistoryFragment extends OsmAndListFragment implements SearchActivityChild, OsmAndCompassListener  {
@@ -277,7 +279,7 @@ public class SearchHistoryFragment extends OsmAndListFragment implements SearchA
 		if (typeName != null && !typeName.isEmpty()) {
 			ImageView group = (ImageView) row.findViewById(R.id.type_name_icon);
 			group.setVisibility(View.VISIBLE);
-			group.setImageDrawable(ic.getThemedIcon(R.drawable.ic_small_group));
+			group.setImageDrawable(ic.getThemedIcon(R.drawable.ic_action_group_name_16));
 			((TextView) row.findViewById(R.id.type_name)).setText(typeName);
 		} else {
 			row.findViewById(R.id.type_name_icon).setVisibility(View.GONE);
@@ -288,15 +290,15 @@ public class SearchHistoryFragment extends OsmAndListFragment implements SearchA
 	public static int getItemIcon(PointDescription pd) {
 		int iconId;
 		if (pd.isAddress()) {
-			iconId = R.drawable.ic_type_address;
+			iconId = R.drawable.ic_action_street_name;
 		} else if (pd.isFavorite()) {
-			iconId = R.drawable.ic_type_favorites;
+			iconId = R.drawable.ic_action_favorite;
 		} else if (pd.isLocation()) {
-			iconId = R.drawable.ic_type_coordinates;
+			iconId = R.drawable.ic_action_marker_dark;
 		} else if (pd.isPoi()) {
-			iconId = R.drawable.ic_type_info;
+			iconId = R.drawable.ic_action_info_dark;
 		} else if (pd.isWpt()) {
-			iconId = R.drawable.ic_type_waypoint;
+			iconId = R.drawable.ic_action_flag_stroke;
 		} else if (pd.isAudioNote()) {
 			iconId = R.drawable.ic_type_audio;
 		} else if (pd.isVideoNote()) {
@@ -304,7 +306,7 @@ public class SearchHistoryFragment extends OsmAndListFragment implements SearchA
 		}else if (pd.isPhotoNote()) {
 			iconId = R.drawable.ic_type_img;
 		}  else {
-			iconId = R.drawable.ic_type_address;
+			iconId = R.drawable.ic_action_street_name;
 		}
 		return iconId;
 	}

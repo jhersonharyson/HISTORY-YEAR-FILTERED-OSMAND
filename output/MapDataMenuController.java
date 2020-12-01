@@ -5,10 +5,12 @@ import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.support.annotation.NonNull;
-import android.support.v7.app.AlertDialog;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+
+import net.osmand.AndroidUtils;
 import net.osmand.IProgress;
 import net.osmand.IndexConstants;
 import net.osmand.data.LatLon;
@@ -20,7 +22,7 @@ import net.osmand.plus.activities.LocalIndexHelper;
 import net.osmand.plus.activities.LocalIndexHelper.LocalIndexType;
 import net.osmand.plus.activities.LocalIndexInfo;
 import net.osmand.plus.activities.MapActivity;
-import net.osmand.plus.download.DownloadActivity;
+import net.osmand.plus.activities.PluginsFragment;
 import net.osmand.plus.download.DownloadActivityType;
 import net.osmand.plus.download.DownloadIndexesThread;
 import net.osmand.plus.download.DownloadValidationManager;
@@ -31,8 +33,8 @@ import net.osmand.plus.liveupdates.LiveUpdatesHelper;
 import net.osmand.plus.mapcontextmenu.MenuController;
 import net.osmand.plus.mapcontextmenu.builders.MapDataMenuBuilder;
 import net.osmand.plus.srtmplugin.SRTMPlugin;
-import net.osmand.plus.views.ContextMenuLayer.IContextMenuProvider;
-import net.osmand.plus.views.DownloadedRegionsLayer.DownloadMapObject;
+import net.osmand.plus.views.layers.ContextMenuLayer.IContextMenuProvider;
+import net.osmand.plus.views.layers.DownloadedRegionsLayer.DownloadMapObject;
 import net.osmand.util.Algorithms;
 
 import java.io.File;
@@ -95,7 +97,8 @@ public class MapDataMenuController extends MenuController {
 					restoreFromBackup();
 				} else if (indexItem != null && activity != null) {
 					if ((indexItem.getType() == DownloadActivityType.SRTM_COUNTRY_FILE
-							|| indexItem.getType() == DownloadActivityType.HILLSHADE_FILE)
+							|| indexItem.getType() == DownloadActivityType.HILLSHADE_FILE
+							|| indexItem.getType() == DownloadActivityType.SLOPE_FILE)
 							&& srtmDisabled) {
 						activity.getContextMenu().close();
 
@@ -108,8 +111,7 @@ public class MapDataMenuController extends MenuController {
 										activity.getString(R.string.activate_srtm_plugin), Toast.LENGTH_LONG).show();
 							}
 						} else {
-							activity.startActivity(new Intent(activity, activity.getMyApplication().getAppCustomization()
-									.getPluginsActivity()));
+							PluginsFragment.showInstance(activity.getSupportFragmentManager());
 							Toast.makeText(activity, activity.getString(R.string.activate_srtm_plugin),
 									Toast.LENGTH_SHORT).show();
 						}
@@ -122,7 +124,7 @@ public class MapDataMenuController extends MenuController {
 			}
 		};
 		leftDownloadButtonController.caption = mapActivity.getString(R.string.shared_string_download);
-		leftDownloadButtonController.leftIconId = R.drawable.ic_action_import;
+		leftDownloadButtonController.startIconId = R.drawable.ic_action_import;
 
 		rightDownloadButtonController = new TitleButtonController() {
 			@Override
@@ -152,7 +154,7 @@ public class MapDataMenuController extends MenuController {
 			}
 		};
 		rightDownloadButtonController.caption = mapActivity.getString(R.string.download_select_map_types);
-		rightDownloadButtonController.leftIconId = R.drawable.ic_plugin_srtm;
+		rightDownloadButtonController.startIconId = R.drawable.ic_plugin_srtm;
 
 		bottomTitleButtonController = new TitleButtonController() {
 			@Override
@@ -169,7 +171,7 @@ public class MapDataMenuController extends MenuController {
 			}
 		};
 		bottomTitleButtonController.caption = mapActivity.getString(R.string.shared_string_delete);
-		bottomTitleButtonController.leftIconId = R.drawable.ic_action_delete_dark;
+		bottomTitleButtonController.startIconId = R.drawable.ic_action_delete_dark;
 
 		titleProgressController = new TitleProgressController() {
 			@Override
@@ -311,11 +313,7 @@ public class MapDataMenuController extends MenuController {
 			}
 			StringBuilder sizeStr = new StringBuilder();
 			if (localIndexInfo.getSize() >= 0) {
-				if (localIndexInfo.getSize() > 100) {
-					sizeStr.append(DownloadActivity.formatMb.format(new Object[]{(float) localIndexInfo.getSize() / (1 << 10)}));
-				} else {
-					sizeStr.append(localIndexInfo.getSize()).append(" KB");
-				}
+				sizeStr.append(AndroidUtils.formatSize(mapActivity, localIndexInfo.getSize() * 1024l));
 			}
 			if (backuped) {
 				if (sizeStr.length() > 0) {
@@ -398,12 +396,13 @@ public class MapDataMenuController extends MenuController {
 		}
 
 		leftDownloadButtonController.visible = true;
-		leftDownloadButtonController.leftIconId = R.drawable.ic_action_import;
+		leftDownloadButtonController.startIconId = R.drawable.ic_action_import;
 		if (backuped) {
 			leftDownloadButtonController.caption = mapActivity.getString(R.string.local_index_mi_restore);
 		} else if (indexItem != null) {
 			if ((indexItem.getType() == DownloadActivityType.SRTM_COUNTRY_FILE
-					|| indexItem.getType() == DownloadActivityType.HILLSHADE_FILE)
+					|| indexItem.getType() == DownloadActivityType.HILLSHADE_FILE
+					|| indexItem.getType() == DownloadActivityType.SLOPE_FILE)
 					&& srtmDisabled) {
 				leftDownloadButtonController.caption = mapActivity.getString(R.string.get_plugin);
 				leftDownloadButtonController.clearIcon(true);

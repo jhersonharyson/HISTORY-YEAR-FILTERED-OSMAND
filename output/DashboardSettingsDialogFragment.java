@@ -1,17 +1,10 @@
 package net.osmand.plus.dashboard.tools;
 
-import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.FragmentActivity;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.view.ContextThemeWrapper;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -21,12 +14,19 @@ import android.widget.CompoundButton;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.view.ContextThemeWrapper;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.FragmentActivity;
+
 import net.osmand.PlatformUtil;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.OsmandSettings;
-import net.osmand.plus.OsmandSettings.CommonPreference;
+import net.osmand.plus.settings.backend.OsmandSettings;
+import net.osmand.plus.settings.backend.CommonPreference;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.dashboard.DashboardOnMap;
 
@@ -50,9 +50,9 @@ public class DashboardSettingsDialogFragment extends DialogFragment
 	private static final int DEFAULT_NUMBER_OF_ROWS = 5;
 
 	@Override
-	public void onAttach(Activity activity) {
-		super.onAttach(activity);
-		mapActivity = (MapActivity) activity;
+	public void onAttach(@NonNull Context context) {
+		super.onAttach(context);
+		mapActivity = (MapActivity) context;
 		mFragmentsData = new ArrayList<>();
 		for (DashFragmentData fragmentData : mapActivity.getDashboard().getFragmentsData()) {
 			if (fragmentData.canBeDisabled()) mFragmentsData.add(fragmentData);
@@ -67,7 +67,7 @@ public class DashboardSettingsDialogFragment extends DialogFragment
 		TypedValue typedValue = new TypedValue();
 		FragmentActivity activity = requireActivity();
 		OsmandApplication app = (OsmandApplication) activity.getApplication();
-		boolean nightMode = app.getDaynightHelper().isNightModeForMapControls();
+		boolean nightMode = isNightMode();
 		context = new ContextThemeWrapper(activity, !nightMode ? R.style.OsmandLightTheme : R.style.OsmandDarkTheme);
 		Theme theme = context.getTheme();
 		theme.resolveAttribute(android.R.attr.textColorPrimary, typedValue, true);
@@ -132,14 +132,13 @@ public class DashboardSettingsDialogFragment extends DialogFragment
 		subtextView.setText(description);
 		final CompoundButton compoundButton = (CompoundButton) view.findViewById(R.id.toggle_item);
 		compoundButton.setChecked(pref.get());
-		textView.setTextColor(pref.get() ? textColorPrimary : textColorSecondary);
-		compoundButton.setOnCheckedChangeListener(
-				new CompoundButton.OnCheckedChangeListener() {
-					@Override
-					public void onCheckedChanged(CompoundButton compoundButton, boolean b) {
-						textView.setTextColor(b ? textColorPrimary : textColorSecondary);
-					}
-				});
+		view.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				compoundButton.setChecked(!compoundButton.isChecked());
+			}
+		});
+		UiUtilities.setupCompoundButton(compoundButton, isNightMode(), UiUtilities.CompoundButtonType.GLOBAL);
 		return view;
 	}
 
@@ -244,6 +243,7 @@ public class DashboardSettingsDialogFragment extends DialogFragment
 	}
 	
 	private class DashViewHolder {
+		final View view;
 		final TextView textView;
 		final CompoundButton compoundButton;
 		final TextView numberOfRowsTextView;
@@ -252,6 +252,7 @@ public class DashboardSettingsDialogFragment extends DialogFragment
 		private DashFragmentAdapter dashFragmentAdapter;
 
 		public DashViewHolder(DashFragmentAdapter dashFragmentAdapter, View view, Context ctx) {
+			this.view = view;
 			this.dashFragmentAdapter = dashFragmentAdapter;
 			this.numberOfRowsTextView = (TextView) view.findViewById(R.id.numberOfRowsTextView);
 			this.textView = (TextView) view.findViewById(R.id.text);
@@ -277,14 +278,25 @@ public class DashboardSettingsDialogFragment extends DialogFragment
 					textColorSecondary);
 			this.position = position;
 
+			view.setOnClickListener(new View.OnClickListener() {
+				@Override
+				public void onClick(View v) {
+					compoundButton.setChecked(!compoundButton.isChecked());
+				}
+			});
 			compoundButton.setChecked(dashFragmentAdapter.isChecked(position));
 			compoundButton.setTag(this);
 			compoundButton.setOnCheckedChangeListener(dashFragmentAdapter.onTurnedOnOffListener);
+			UiUtilities.setupCompoundButton(compoundButton, isNightMode(), UiUtilities.CompoundButtonType.GLOBAL);
 
 			numberOfRowsTextView.setTag(this);
 			numberOfRowsTextView.setOnClickListener(dashFragmentAdapter.onNumberClickListener);
 		}
 		
 
+	}
+	
+	private boolean isNightMode() {
+		return mapActivity.getMyApplication().getDaynightHelper().isNightModeForMapControls();
 	}
 }

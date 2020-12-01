@@ -8,7 +8,8 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.RemoteException;
-import android.support.annotation.Nullable;
+
+import androidx.annotation.Nullable;
 
 import net.osmand.PlatformUtil;
 import net.osmand.aidl.OsmandAidlApi.GpxBitmapCreatedCallback;
@@ -43,6 +44,7 @@ import net.osmand.aidl.gpx.RemoveGpxParams;
 import net.osmand.aidl.gpx.ShowGpxParams;
 import net.osmand.aidl.gpx.StartGpxRecordingParams;
 import net.osmand.aidl.gpx.StopGpxRecordingParams;
+import net.osmand.aidl.lock.SetLockStateParams;
 import net.osmand.aidl.map.ALatLon;
 import net.osmand.aidl.map.SetMapLocationParams;
 import net.osmand.aidl.maplayer.AddMapLayerParams;
@@ -79,12 +81,14 @@ import net.osmand.aidl.note.StartVideoRecordingParams;
 import net.osmand.aidl.note.StopRecordingParams;
 import net.osmand.aidl.note.TakePhotoNoteParams;
 import net.osmand.aidl.plugins.PluginParams;
+import net.osmand.aidl.quickaction.QuickActionInfoParams;
+import net.osmand.aidl.quickaction.QuickActionParams;
 import net.osmand.aidl.search.SearchParams;
 import net.osmand.aidl.search.SearchResult;
 import net.osmand.aidl.tiles.ASqliteDbFile;
 import net.osmand.data.LatLon;
-import net.osmand.plus.OsmAndAppCustomization;
 import net.osmand.plus.OsmandApplication;
+import net.osmand.plus.settings.backend.OsmAndAppCustomization;
 import net.osmand.util.Algorithms;
 
 import org.apache.commons.logging.Log;
@@ -307,7 +311,7 @@ public class OsmandAidlService extends Service implements AidlCallbackListener {
 					AFavorite newFav = params.getFavoriteNew();
 					if (prevFav != null && newFav != null) {
 						return api.updateFavorite(prevFav.getName(), prevFav.getCategory(), prevFav.getLat(), prevFav.getLon(),
-								newFav.getName(), newFav.getCategory(), newFav.getDescription(), newFav.getLat(), newFav.getLon());
+								newFav.getName(), newFav.getCategory(), newFav.getDescription(), newFav.getAddress(), newFav.getLat(), newFav.getLon());
 					}
 				}
 				return false;
@@ -594,7 +598,7 @@ public class OsmandAidlService extends Service implements AidlCallbackListener {
 				if (params != null) {
 					OsmandAidlApi api = getApi("setMapLocation");
 					return api != null && api.setMapLocation(params.getLatitude(), params.getLongitude(),
-							params.getZoom(), params.isAnimated());
+							params.getZoom(), params.getRotation(), params.isAnimated());
 				}
 				return false;
 			} catch (Exception e) {
@@ -732,7 +736,7 @@ public class OsmandAidlService extends Service implements AidlCallbackListener {
 				return params != null && api != null && api.navigate(
 						params.getStartName(), params.getStartLat(), params.getStartLon(),
 						params.getDestName(), params.getDestLat(), params.getDestLon(),
-						params.getProfile(), params.isForce());
+						params.getProfile(), params.isForce(), params.isNeedLocationPermission());
 			} catch (Exception e) {
 				handleException(e);
 				return false;
@@ -743,7 +747,8 @@ public class OsmandAidlService extends Service implements AidlCallbackListener {
 		public boolean navigateGpx(NavigateGpxParams params) {
 			try {
 				OsmandAidlApi api = getApi("navigateGpx");
-				return params != null && api != null && api.navigateGpx(params.getData(), params.getUri(), params.isForce());
+				return params != null && api != null && api.navigateGpx(params.getData(), params.getUri(),
+						params.isForce(), params.isNeedLocationPermission());
 			} catch (Exception e) {
 				handleException(e);
 				return false;
@@ -853,7 +858,7 @@ public class OsmandAidlService extends Service implements AidlCallbackListener {
 				return params != null && api != null && api.navigateSearch(
 						params.getStartName(), params.getStartLat(), params.getStartLon(),
 						params.getSearchQuery(), params.getSearchLat(), params.getSearchLon(),
-						params.getProfile(), params.isForce());
+						params.getProfile(), params.isForce(), params.isNeedLocationPermission());
 			} catch (Exception e) {
 				handleException(e);
 				return false;
@@ -1295,7 +1300,41 @@ public class OsmandAidlService extends Service implements AidlCallbackListener {
 		public boolean importProfile(ProfileSettingsParams params) {
 			try {
 				OsmandAidlApi api = getApi("importProfile");
-				return api != null && api.importProfile(params.getProfileSettingsUri(), params.getLatestChanges(), params.getVersion());
+				return api != null && api.importProfile(params.getProfileSettingsUri(), params.getLatestChanges(),
+						params.getVersion());
+			} catch (Exception e) {
+				handleException(e);
+				return false;
+			}
+		}
+
+		@Override
+		public boolean executeQuickAction(QuickActionParams params) {
+			try {
+				OsmandAidlApi api = getApi("executeQuickAction");
+				return api != null && api.executeQuickAction(params.getActionNumber());
+			} catch (Exception e) {
+				handleException(e);
+				return false;
+			}
+		}
+
+		@Override
+		public boolean getQuickActionsInfo(List<QuickActionInfoParams> quickActions) {
+			try {
+				OsmandAidlApi api = getApi("getQuickActionsInfo");
+				return api != null && api.getQuickActionsInfo(quickActions);
+			} catch (Exception e) {
+				handleException(e);
+				return false;
+			}
+		}
+
+		@Override
+		public boolean setLockState(SetLockStateParams params) {
+			try {
+				OsmandAidlApi api = getApi("setLockState");
+				return api != null && api.setLockState(params.getLockState());
 			} catch (Exception e) {
 				handleException(e);
 				return false;

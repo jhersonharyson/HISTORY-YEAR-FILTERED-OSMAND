@@ -3,14 +3,9 @@ package net.osmand.plus.liveupdates;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.Resources;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.support.annotation.AttrRes;
-import android.support.annotation.ColorInt;
-import android.support.annotation.NonNull;
-import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -23,6 +18,8 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.Spinner;
 import android.widget.TextView;
+
+import androidx.annotation.NonNull;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -204,9 +201,9 @@ public class ReportsFragment extends BaseOsmAndFragment implements CountrySelect
 		};
 		monthReportsSpinner.setOnItemSelectedListener(onItemSelectedListener);
 
-		inactiveColor = getColorFromAttr(R.attr.plugin_details_install_header_bg);
-		textColorPrimary = getColorFromAttr(android.R.attr.textColorPrimary);
-		textColorSecondary = getColorFromAttr(android.R.attr.textColorSecondary);
+		inactiveColor = AndroidUtils.getColorFromAttr(container.getContext(), R.attr.plugin_details_install_header_bg);
+		textColorPrimary = AndroidUtils.getColorFromAttr(container.getContext(), android.R.attr.textColorPrimary);
+		textColorSecondary = AndroidUtils.getColorFromAttr(container.getContext(), android.R.attr.textColorSecondary);
 
 		return view;
 	}
@@ -425,13 +422,5 @@ public class ReportsFragment extends BaseOsmAndFragment implements CountrySelect
 		donationsTextView.setTextColor(textColorPrimary);
 		donationsTotalTextView.setTextColor(textColorPrimary);
 		recipientsTextView.setTextColor(textColorPrimary);
-	}
-
-	@ColorInt
-	private int getColorFromAttr(@AttrRes int colorAttribute) {
-		TypedValue typedValue = new TypedValue();
-		Resources.Theme theme = getActivity().getTheme();
-		theme.resolveAttribute(colorAttribute, typedValue, true);
-		return typedValue.data;
 	}
 }

@@ -12,12 +12,6 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.StatFs;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentActivity;
-import android.support.v7.app.AlertDialog;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -28,9 +22,18 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.core.app.ActivityCompat;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
+
+import net.osmand.AndroidUtils;
+import net.osmand.FileUtils;
 import net.osmand.ValueHolder;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.ProgressImplementation;
 import net.osmand.plus.R;
 import net.osmand.plus.download.DownloadActivity;
@@ -41,7 +44,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -56,7 +58,6 @@ public class DashChooseAppDirFragment {
 		public static final int VERSION_DEFAULTLOCATION_CHANGED = 19;
 		private TextView locationPath;
 		private TextView locationDesc;
-		MessageFormat formatGb = new MessageFormat("{0, number,#.##} GB", Locale.US);
 		private View copyMapsBtn;
 		private ImageView editBtn;
 		private View dontCopyMapsBtn;
@@ -92,8 +93,7 @@ public class DashChooseAppDirFragment {
 		private String getFreeSpace(File dir) {
 			if (dir.canRead()) {
 				StatFs fs = new StatFs(dir.getAbsolutePath());
-				return formatGb
-						.format(new Object[] { (float) (fs.getAvailableBlocks()) * fs.getBlockSize() / (1 << 30) });
+				return AndroidUtils.formatSize(activity, (long) fs.getAvailableBlocks() * fs.getBlockSize() );
 			}
 			return "";
 		}
@@ -114,7 +114,7 @@ public class DashChooseAppDirFragment {
 			boolean copyFiles = !currentAppFile.getAbsolutePath().equals(selectedFile.getAbsolutePath()) && !mapsCopied;
 			warningReadonly.setVisibility(copyFiles ? View.VISIBLE : View.GONE);
 			if (copyFiles) {
-				if (!OsmandSettings.isWritable(currentAppFile)) {
+				if (!FileUtils.isWritable(currentAppFile)) {
 					warningReadonly.setText(activity.getString(R.string.android_19_location_disabled,
 							currentAppFile.getAbsolutePath()));
 				} else {
@@ -223,7 +223,7 @@ public class DashChooseAppDirFragment {
 			paths.add("");
 			types.add(OsmandSettings.EXTERNAL_STORAGE_TYPE_SPECIFIED);
 
-			editalert.setSingleChoiceItems(items.toArray(new String[items.size()]), selected,
+			editalert.setSingleChoiceItems(items.toArray(new String[0]), selected,
 					new DialogInterface.OnClickListener() {
 
 						@Override
@@ -313,19 +313,10 @@ public class DashChooseAppDirFragment {
 					@SuppressLint("StaticFieldLeak")
 					MoveFilesToDifferentDirectory task = new MoveFilesToDifferentDirectory(activity, currentAppFile, selectedFile) {
 
-						private MessageFormat formatMb = new MessageFormat("{0, number,##.#} MB", Locale.US);
 
 						@NonNull
 						private String getFormattedSize(long sizeBytes) {
-							int size = (int) ((sizeBytes + 512) >> 10);
-							if (size >= 0) {
-								if (size > 100) {
-									return formatMb.format(new Object[]{(float) size / (1 << 10)});
-								} else {
-									return size + " kB";
-								}
-							}
-							return "";
+							return AndroidUtils.formatSize(activity, sizeBytes);
 						}
 
 						private void showResultsDialog() {
@@ -395,7 +386,7 @@ public class DashChooseAppDirFragment {
 
 				@Override
 				public void onClick(View v) {
-					boolean wr = OsmandSettings.isWritable(selectedFile);
+					boolean wr = FileUtils.isWritable(selectedFile);
 					if (wr) {
 						boolean changed = !currentAppFile.getAbsolutePath().equals(selectedFile.getAbsolutePath());
 						getMyApplication().setExternalStorageDirectory(type, selectedFile.getAbsolutePath());

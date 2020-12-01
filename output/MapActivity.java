@@ -17,25 +17,12 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Message;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.ActivityCompat.OnRequestPermissionsResultCallback;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.widget.DrawerLayout;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceFragmentCompat;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.view.Window;
 import android.view.WindowManager;
@@ -43,7 +30,23 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.core.app.ActivityCompat;
+import androidx.core.app.ActivityCompat.OnRequestPermissionsResultCallback;
+import androidx.core.content.ContextCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentManager.BackStackEntry;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragmentCompat;
+import androidx.preference.PreferenceFragmentCompat.OnPreferenceStartFragmentCallback;
+
 import net.osmand.AndroidUtils;
+import net.osmand.GPXUtilities.GPXFile;
 import net.osmand.Location;
 import net.osmand.PlatformUtil;
 import net.osmand.SecondSplashScreenFragment;
@@ -60,36 +63,31 @@ import net.osmand.data.QuadRect;
 import net.osmand.data.RotatedTileBox;
 import net.osmand.map.MapTileDownloader.DownloadRequest;
 import net.osmand.map.MapTileDownloader.IMapDownloaderCallback;
-import net.osmand.map.TileSourceManager;
-import net.osmand.map.TileSourceManager.TileSourceTemplate;
 import net.osmand.plus.AppInitializer;
 import net.osmand.plus.AppInitializer.AppInitializeListener;
 import net.osmand.plus.AppInitializer.InitEvents;
-import net.osmand.plus.ApplicationMode;
 import net.osmand.plus.GpxSelectionHelper.GpxDisplayItem;
-import net.osmand.plus.HuaweiDrmHelper;
-import net.osmand.plus.MapMarkersHelper;
-import net.osmand.plus.MapMarkersHelper.MapMarker;
-import net.osmand.plus.MapMarkersHelper.MapMarkerChangedListener;
+import net.osmand.plus.mapmarkers.MapMarker;
+import net.osmand.plus.mapmarkers.MapMarkersHelper.MapMarkerChangedListener;
 import net.osmand.plus.OnDismissDialogFragmentListener;
-import net.osmand.plus.OsmAndAppCustomization.OsmAndAppCustomizationListener;
 import net.osmand.plus.OsmAndConstants;
 import net.osmand.plus.OsmAndLocationSimulation;
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.OsmandPlugin;
-import net.osmand.plus.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.TargetPointsHelper;
 import net.osmand.plus.TargetPointsHelper.TargetPoint;
 import net.osmand.plus.Version;
 import net.osmand.plus.activities.search.SearchActivity;
 import net.osmand.plus.base.BaseOsmAndFragment;
+import net.osmand.plus.base.ContextMenuFragment;
 import net.osmand.plus.base.FailSafeFuntions;
 import net.osmand.plus.base.MapViewTrackingUtilities;
-import net.osmand.plus.chooseplan.OsmLiveCancelledDialog;
+import net.osmand.plus.chooseplan.OsmLiveGoneDialog;
+import net.osmand.plus.dashboard.DashBaseFragment;
 import net.osmand.plus.dashboard.DashboardOnMap;
-import net.osmand.plus.dashboard.DashboardOnMap.DashboardType;
 import net.osmand.plus.dialogs.CrashBottomSheetDialogFragment;
+import net.osmand.plus.dialogs.ImportGpxBottomSheetDialogFragment;
 import net.osmand.plus.dialogs.RateUsBottomSheetDialogFragment;
 import net.osmand.plus.dialogs.SendAnalyticsBottomSheetDialogFragment;
 import net.osmand.plus.dialogs.WhatsNewDialogFragment;
@@ -100,24 +98,27 @@ import net.osmand.plus.download.ui.DataStoragePlaceDialogFragment;
 import net.osmand.plus.firstusage.FirstUsageWelcomeFragment;
 import net.osmand.plus.firstusage.FirstUsageWizardFragment;
 import net.osmand.plus.helpers.AndroidUiHelper;
+import net.osmand.plus.helpers.DayNightHelper;
 import net.osmand.plus.helpers.DiscountHelper;
-import net.osmand.plus.helpers.ExternalApiHelper;
-import net.osmand.plus.helpers.ImportHelper;
-import net.osmand.plus.helpers.ImportHelper.ImportGpxBottomSheetDialogFragment;
+import net.osmand.plus.helpers.IntentHelper;
 import net.osmand.plus.helpers.LockHelper;
+import net.osmand.plus.helpers.LockHelper.LockUIAdapter;
+import net.osmand.plus.helpers.ScrollHelper;
+import net.osmand.plus.helpers.ScrollHelper.OnScrollEventListener;
+import net.osmand.plus.importfiles.ImportHelper;
 import net.osmand.plus.mapcontextmenu.AdditionalActionsBottomSheetDialogFragment;
 import net.osmand.plus.mapcontextmenu.MapContextMenu;
-import net.osmand.plus.mapcontextmenu.MenuController.MenuState;
+import net.osmand.plus.mapcontextmenu.MenuController;
 import net.osmand.plus.mapcontextmenu.builders.cards.dialogs.ContextMenuCardDialogFragment;
 import net.osmand.plus.mapcontextmenu.other.DestinationReachedMenu;
 import net.osmand.plus.mapcontextmenu.other.TrackDetailsMenu;
-import net.osmand.plus.mapmarkers.MapMarkersDialogFragment;
 import net.osmand.plus.mapmarkers.PlanRouteFragment;
+import net.osmand.plus.measurementtool.GpxApproximationFragment;
+import net.osmand.plus.measurementtool.GpxData;
+import net.osmand.plus.measurementtool.LoginBottomSheetFragment;
 import net.osmand.plus.measurementtool.MeasurementEditingContext;
 import net.osmand.plus.measurementtool.MeasurementToolFragment;
-import net.osmand.plus.measurementtool.NewGpxData;
-import net.osmand.plus.profiles.EditProfileFragment;
-import net.osmand.plus.quickaction.QuickActionListFragment;
+import net.osmand.plus.measurementtool.SnapTrackWarningFragment;
 import net.osmand.plus.render.RendererRegistry;
 import net.osmand.plus.resources.ResourceManager;
 import net.osmand.plus.routepreparationmenu.ChooseRouteFragment;
@@ -125,26 +126,30 @@ import net.osmand.plus.routepreparationmenu.MapRouteInfoMenu;
 import net.osmand.plus.routepreparationmenu.MapRouteInfoMenuFragment;
 import net.osmand.plus.routing.IRouteInformationListener;
 import net.osmand.plus.routing.RoutingHelper;
-import net.osmand.plus.routing.RoutingHelper.RouteCalculationProgressCallback;
+import net.osmand.plus.routing.RouteCalculationProgressCallback;
 import net.osmand.plus.routing.TransportRoutingHelper.TransportRouteCalculationProgressCallback;
 import net.osmand.plus.search.QuickSearchDialogFragment;
 import net.osmand.plus.search.QuickSearchDialogFragment.QuickSearchTab;
 import net.osmand.plus.search.QuickSearchDialogFragment.QuickSearchType;
-import net.osmand.plus.settings.BaseSettingsFragment;
-import net.osmand.plus.settings.BaseSettingsFragment.SettingsScreenType;
-import net.osmand.plus.settings.DataStorageFragment;
-import net.osmand.plus.settings.ProfileAppearanceFragment;
+import net.osmand.plus.settings.backend.ApplicationMode;
+import net.osmand.plus.settings.backend.CommonPreference;
+import net.osmand.plus.settings.backend.OsmAndAppCustomization.OsmAndAppCustomizationListener;
+import net.osmand.plus.settings.backend.OsmandSettings;
+import net.osmand.plus.settings.fragments.BaseSettingsFragment;
+import net.osmand.plus.settings.fragments.BaseSettingsFragment.SettingsScreenType;
+import net.osmand.plus.settings.fragments.ConfigureProfileFragment;
+import net.osmand.plus.settings.fragments.DataStorageFragment;
+import net.osmand.plus.track.TrackAppearanceFragment;
 import net.osmand.plus.views.AddGpxPointBottomSheetHelper.NewGpxPoint;
 import net.osmand.plus.views.AnimateDraggingMapThread;
-import net.osmand.plus.views.MapControlsLayer;
-import net.osmand.plus.views.MapInfoLayer;
-import net.osmand.plus.views.MapQuickActionLayer;
 import net.osmand.plus.views.OsmAndMapLayersView;
 import net.osmand.plus.views.OsmAndMapSurfaceView;
 import net.osmand.plus.views.OsmandMapLayer;
 import net.osmand.plus.views.OsmandMapTileView;
 import net.osmand.plus.views.OsmandMapTileView.OnDrawMapListener;
 import net.osmand.plus.views.corenative.NativeCoreContext;
+import net.osmand.plus.views.layers.MapControlsLayer;
+import net.osmand.plus.views.layers.MapInfoLayer;
 import net.osmand.plus.views.mapwidgets.MapInfoWidgetsFactory.TopToolbarController;
 import net.osmand.plus.views.mapwidgets.MapInfoWidgetsFactory.TopToolbarControllerType;
 import net.osmand.render.RenderingRulesStorage;
@@ -153,10 +158,8 @@ import net.osmand.util.Algorithms;
 
 import org.apache.commons.logging.Log;
 
-import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -164,28 +167,27 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static net.osmand.aidlapi.OsmAndCustomizationConstants.DRAWER_SETTINGS_ID;
-import static net.osmand.plus.OsmandSettings.GENERIC_EXTERNAL_DEVICE;
-import static net.osmand.plus.OsmandSettings.PARROT_EXTERNAL_DEVICE;
-import static net.osmand.plus.OsmandSettings.WUNDERLINQ_EXTERNAL_DEVICE;
+import static net.osmand.plus.activities.TrackActivity.CURRENT_RECORDING;
+import static net.osmand.plus.activities.TrackActivity.TRACK_FILE_NAME;
 
 public class MapActivity extends OsmandActionBarActivity implements DownloadEvents,
 		OnRequestPermissionsResultCallback, IRouteInformationListener, AMapPointUpdateListener,
 		MapMarkerChangedListener, OnDismissDialogFragmentListener, OnDrawMapListener,
-		OsmAndAppCustomizationListener, LockHelper.LockUIAdapter, PreferenceFragmentCompat.OnPreferenceStartFragmentCallback {
+		OsmAndAppCustomizationListener, LockUIAdapter, OnPreferenceStartFragmentCallback,
+		OnScrollEventListener {
 
 	public static final String INTENT_KEY_PARENT_MAP_ACTIVITY = "intent_parent_map_activity_key";
 	public static final String INTENT_PARAMS = "intent_prarams";
 
 	private static final int SHOW_POSITION_MSG_ID = OsmAndConstants.UI_HANDLER_MAP_VIEW + 1;
-	private static final int LONG_KEYPRESS_MSG_ID = OsmAndConstants.UI_HANDLER_MAP_VIEW + 2;
-	private static final int LONG_KEYPRESS_DELAY = 500;
 	private static final int ZOOM_LABEL_DISPLAY = 16;
 	private static final int MIN_ZOOM_LABEL_DISPLAY = 12;
 	private static final int SECOND_SPLASH_TIME_OUT = 8000;
+
+	private static final int SMALL_SCROLLING_UNIT = 1;
+	private static final int BIG_SCROLLING_UNIT = 200;
 
 	private static final Log LOG = PlatformUtil.getLog(MapActivity.class);
 
@@ -208,19 +210,19 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	private MapActivityActions mapActions;
 	private MapActivityLayers mapLayers;
 
-	// handler to show/hide trackball position and to link map with delay
-	private Handler uiHandler = new Handler();
 	// App variables
 	private OsmandApplication app;
 	private OsmandSettings settings;
 
-	private boolean landscapeLayout;
+	private LockHelper lockHelper;
+	private ImportHelper importHelper;
+	private IntentHelper intentHelper;
+	private ScrollHelper mapScrollHelper;
 
-	private Dialog progressDlg = null;
+	private boolean landscapeLayout;
 
 	private List<DialogProvider> dialogProviders = new ArrayList<>(2);
 	private StateChangedListener<ApplicationMode> applicationModeListener;
-	private ImportHelper importHelper;
 	private boolean intentLocation = false;
 
 	private DashboardOnMap dashboardOnMap = new DashboardOnMap(this);
@@ -240,7 +242,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	private boolean stopped = true;
 
 	private ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
-	private LockHelper lockHelper;
 
 	private StateChangedListener<Integer> mapScreenOrientationSettingListener = new StateChangedListener<Integer>() {
 		@Override
@@ -249,6 +250,14 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		}
 	};
 
+	private StateChangedListener<Boolean> useSystemScreenTimeoutListener = new StateChangedListener<Boolean>() {
+		@Override
+		public void stateChanged(Boolean change) {
+			changeKeyguardFlags();
+		}
+	};
+	private MapActivityKeyListener mapActivityKeyListener;
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		setRequestedOrientation(AndroidUiHelper.getScreenOrientation(this));
@@ -256,6 +265,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		app = getMyApplication();
 		settings = app.getSettings();
 		lockHelper = app.getLockHelper();
+		mapScrollHelper = new ScrollHelper(app);
 		app.applyTheme(this);
 		supportRequestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -269,9 +279,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 		super.onCreate(savedInstanceState);
 
-		if (Version.isHuawei(getMyApplication())) {
-			HuaweiDrmHelper.check(this);
-		}
 		// Full screen is not used here
 		// getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 		setContentView(R.layout.main);
@@ -282,11 +289,8 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			AndroidUtils.addStatusBarPadding21v(this, findViewById(R.id.menuItems));
 		}
 
-		int statusBarHeight = 0;
-		int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-		if (resourceId > 0) {
-			statusBarHeight = getResources().getDimensionPixelSize(resourceId);
-		}
+		int statusBarHeight = AndroidUtils.getStatusBarHeight(this);
+
 		DisplayMetrics dm = new DisplayMetrics();
 		getWindowManager().getDefaultDisplay().getMetrics(dm);
 		int w = dm.widthPixels;
@@ -300,12 +304,12 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		}
 		mapActions = new MapActivityActions(this);
 		mapLayers = new MapActivityLayers(this);
-		if (mapViewTrackingUtilities == null) {
-			mapViewTrackingUtilities = new MapViewTrackingUtilities(app);
-		}
 		dashboardOnMap.createDashboardView();
 		checkAppInitialization();
-		parseLaunchIntents();
+
+		intentHelper = new IntentHelper(this, getMyApplication());
+		intentHelper.parseLaunchIntents();
+
 		mapView.setTrackBallDelegate(new OsmandMapTileView.OnTrackBallListener() {
 			@Override
 			public boolean onTrackBallEvent(MotionEvent e) {
@@ -369,16 +373,16 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		app.getAidlApi().onCreateMapActivity(this);
 
 		lockHelper.setLockUIAdapter(this);
-
+		mapActivityKeyListener = new MapActivityKeyListener(this);
 		mIsDestroyed = false;
 	}
 
-	public void exitFromFullScreen() {
-		AndroidUtils.exitFromFullScreen(this);
+	public void exitFromFullScreen(View view) {
+		AndroidUtils.exitFromFullScreen(this, view);
 	}
 
 	public void enterToFullScreen() {
-		AndroidUtils.enterToFullScreen(this);
+		AndroidUtils.enterToFullScreen(this, getLayout());
 	}
 
 	@Override
@@ -426,7 +430,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 						if (dashboardOnMap != null) {
 							dashboardOnMap.updateLocation(true, true, false);
 						}
-						app.getFavorites().lookupAddressAllPersonalPoints();
 						app.getTargetPointsHelper().lookupAddessAll();
 						app.getMapMarkersHelper().lookupAddressAll();
 					}
@@ -475,7 +478,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			OsmAndMapLayersView ml = (OsmAndMapLayersView) findViewById(R.id.MapLayersView);
 			ml.setVisibility(View.VISIBLE);
 			atlasMapRendererView.setAzimuth(0);
-			atlasMapRendererView.setElevationAngle(90);
+			atlasMapRendererView.setElevationAngle(app.getSettings().getLastKnownMapElevation());
 			NativeCoreContext.getMapRendererContext().setMapRendererView(atlasMapRendererView);
 			ml.setMapView(mapView);
 			mapViewTrackingUtilities.setMapView(mapView);
@@ -486,6 +489,12 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			OsmAndMapSurfaceView surf = (OsmAndMapSurfaceView) findViewById(R.id.MapView);
 			surf.setVisibility(View.VISIBLE);
 			surf.setMapView(mapView);
+		}
+	}
+
+	public void setMapElevation(float angle) {
+		if (atlasMapRendererView != null) {
+			atlasMapRendererView.setElevationAngle(angle);
 		}
 	}
 
@@ -525,7 +534,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			@Override
 			public void requestPrivateAccessRouting() {
 				if (!settings.FORCE_PRIVATE_ACCESS_ROUTING_ASKED.getModeValue(getRoutingHelper().getAppMode())) {
-					final OsmandSettings.CommonPreference<Boolean> allowPrivate
+					final CommonPreference<Boolean> allowPrivate
 							= settings.getCustomRoutingBooleanProperty(GeneralRouter.ALLOW_PRIVATE, false);
 					final List<ApplicationMode> modes = ApplicationMode.values(app);
 					for (ApplicationMode mode : modes) {
@@ -544,7 +553,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 										allowPrivate.setModeValue(mode, true);
 									}
 								}
-								getRoutingHelper().recalculateRouteDueToSettingsChange();
+								getRoutingHelper().onSettingsChanged(null, true);
 							}
 						});
 						dlg.setNegativeButton(R.string.shared_string_no, null);
@@ -625,7 +634,9 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 	@Override
 	protected void onNewIntent(final Intent intent) {
+		super.onNewIntent(intent);
 		setIntent(intent);
+		intentHelper.parseLaunchIntents();
 	}
 
 	@Override
@@ -643,58 +654,17 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			closeDrawer();
 			return;
 		}
-		if (getQuickSearchDialogFragment() != null) {
-			showQuickSearch(ShowQuickSearchMode.CURRENT, false);
-			return;
-		}
-		if (trackDetailsMenu.isVisible()) {
-			trackDetailsMenu.hide(true);
-			if (prevActivityIntent == null) {
-				return;
-			}
-		}
-		PlanRouteFragment planRouteFragment = getPlanRouteFragment();
-		if (planRouteFragment != null) {
-			if (planRouteFragment.quit(true)) {
-				MapMarkersDialogFragment.showInstance(this);
-			}
-			return;
-		}
-		MeasurementToolFragment measurementToolFragment = getMeasurementToolFragment();
-		if (measurementToolFragment != null) {
-			measurementToolFragment.quit(true);
-			return;
-		}
-		ChooseRouteFragment chooseRouteFragment = getChooseRouteFragment();
-		if (chooseRouteFragment != null) {
-			chooseRouteFragment.dismiss(true);
-			return;
-		}
-		EditProfileFragment editProfileFragment = getEditProfileFragment();
-		if (editProfileFragment != null) {
-			if (!editProfileFragment.onBackPressedAllowed()) {
-				editProfileFragment.confirmCancelDialog(this);
-				return;
-			}
-		}
-		ProfileAppearanceFragment profileAppearanceFragment = getProfileAppearanceFragment();
-		if (profileAppearanceFragment != null) {
-			if (profileAppearanceFragment.isProfileAppearanceChanged(this)) {
-				return;
-			}
-		}
-		if (mapContextMenu.isVisible() && mapContextMenu.isClosable()) {
-			if (mapContextMenu.getCurrentMenuState() != MenuState.HEADER_ONLY && !isLandscapeLayout()) {
-				mapContextMenu.openMenuHeaderOnly();
-			} else {
-				mapContextMenu.close();
-			}
-			return;
-		}
 		if (getMapLayers().getContextMenuLayer().isInAddGpxPointMode()) {
 			quitAddGpxPointMode();
 		}
-		if (prevActivityIntent != null && getSupportFragmentManager().getBackStackEntryCount() == 0) {
+		if (getSupportFragmentManager().getBackStackEntryCount() == 0 && launchPrevActivityIntent()) {
+			return;
+		}
+		super.onBackPressed();
+	}
+
+	public boolean launchPrevActivityIntent() {
+		if (prevActivityIntent != null) {
 			prevActivityIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
 			LatLon loc = getMapLocation();
 			prevActivityIntent.putExtra(SearchActivity.SEARCH_LAT, loc.getLatitude());
@@ -702,19 +672,11 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			if (mapViewTrackingUtilities.isMapLinkedToLocation()) {
 				prevActivityIntent.putExtra(SearchActivity.SEARCH_NEARBY, true);
 			}
-			this.startActivity(prevActivityIntent);
+			startActivity(prevActivityIntent);
 			prevActivityIntent = null;
-			return;
+			return true;
 		}
-		if (getMapView().getLayerByClass(MapQuickActionLayer.class).onBackPressed()) {
-			return;
-		}
-		QuickActionListFragment quickActionListFragment = getQuickActionListFragment();
-		if ( quickActionListFragment != null && quickActionListFragment.isVisible()) {
-			this.getDashboard().setDashboardVisibility(true, DashboardType.CONFIGURE_SCREEN, null);
-		}
-
-		super.onBackPressed();
+		return false;
 	}
 
 	private void quitAddGpxPointMode() {
@@ -725,7 +687,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	@Override
 	protected void onRestart() {
 		super.onRestart();
-		parseLaunchIntents();
+		intentHelper.parseLaunchIntents();
 	}
 
 	@Override
@@ -771,8 +733,8 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 		// for voice navigation
 		ApplicationMode routingAppMode = getRoutingHelper().getAppMode();
-		if (routingAppMode != null && settings.AUDIO_STREAM_GUIDANCE.getModeValue(routingAppMode) != null) {
-			setVolumeControlStream(settings.AUDIO_STREAM_GUIDANCE.getModeValue(routingAppMode));
+		if (routingAppMode != null && settings.AUDIO_MANAGER_STREAM.getModeValue(routingAppMode) != null) {
+			setVolumeControlStream(settings.AUDIO_MANAGER_STREAM.getModeValue(routingAppMode));
 		} else {
 			setVolumeControlStream(AudioManager.STREAM_MUSIC);
 		}
@@ -814,75 +776,13 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		OsmandPlugin.checkInstalledMarketPlugins(app, this);
 		OsmandPlugin.onMapActivityResume(this);
 
-		boolean showOsmAndWelcomeScreen = true;
-		final Intent intent = getIntent();
-		if (intent != null) {
-			if (Intent.ACTION_VIEW.equals(intent.getAction())) {
-				final Uri data = intent.getData();
-				if (data != null) {
-					final String scheme = data.getScheme();
-					if ("file".equals(scheme)) {
-						final String path = data.getPath();
-						if (path != null) {
-							importHelper.handleFileImport(data, new File(path).getName(), intent.getExtras(), true);
-						}
-						clearIntent(intent);
-					} else if ("content".equals(scheme)) {
-						importHelper.handleContentImport(data, intent.getExtras(), true);
-						clearIntent(intent);
-					} else if ("google.navigation".equals(scheme) || "osmand.navigation".equals(scheme)) {
-						parseNavigationIntent(data);
-					} else if ("osmand.api".equals(scheme)) {
-						ExternalApiHelper apiHelper = new ExternalApiHelper(this);
-						Intent result = apiHelper.processApiRequest(intent);
-						setResult(apiHelper.getResultCode(), result);
-						result.setAction(null);
-						setIntent(result);
-						if (apiHelper.needFinish()) {
-							finish();
-						}
-					}
-				}
-			}
-			if (intent.hasExtra(FirstUsageWelcomeFragment.SHOW_OSMAND_WELCOME_SCREEN)) {
-				showOsmAndWelcomeScreen = intent.getBooleanExtra(FirstUsageWelcomeFragment.SHOW_OSMAND_WELCOME_SCREEN, true);
-			}
-			if (intent.hasExtra(MapMarkersDialogFragment.OPEN_MAP_MARKERS_GROUPS)) {
-				Bundle openMapMarkersGroupsExtra = intent.getBundleExtra(MapMarkersDialogFragment.OPEN_MAP_MARKERS_GROUPS);
-				if (openMapMarkersGroupsExtra != null) {
-					MapMarkersDialogFragment.showInstance(this, openMapMarkersGroupsExtra.getString(MapMarkersHelper.MapMarkersGroup.MARKERS_SYNC_GROUP_ID));
-				}
-				setIntent(null);
-			}
-			if (intent.hasExtra(EditProfileFragment.OPEN_SETTINGS)) {
-				String settingsType = intent.getStringExtra(EditProfileFragment.OPEN_SETTINGS);
-				String appMode = intent.getStringExtra(EditProfileFragment.SELECTED_ITEM);
-				if (EditProfileFragment.OPEN_CONFIG_PROFILE.equals(settingsType)) {
-					BaseSettingsFragment.showInstance(this, SettingsScreenType.CONFIGURE_PROFILE, ApplicationMode.valueOfStringKey(appMode, null));
-				}
-				setIntent(null);
-			}
-			if (intent.hasExtra(EditProfileFragment.OPEN_CONFIG_ON_MAP)) {
-				switch (intent.getStringExtra(EditProfileFragment.OPEN_CONFIG_ON_MAP)) {
-					case EditProfileFragment.MAP_CONFIG:
-						this.getDashboard().setDashboardVisibility(true, DashboardType.CONFIGURE_MAP, null);
-						break;
-
-					case EditProfileFragment.SCREEN_CONFIG:
-						this.getDashboard().setDashboardVisibility(true, DashboardType.CONFIGURE_SCREEN, null);
-						break;
-				}
-				setIntent(null);
-			}
-
-		}
+		intentHelper.parseContentIntent();
 		mapView.refreshMap(true);
 		if (atlasMapRendererView != null) {
 			atlasMapRendererView.handleOnResume();
 		}
 
 		app.getDownloadThread().setUiActivity(this);
-		app.getSettingsHelper().setActivity(this);
 
 		boolean routeWasFinished = routingHelper.isRouteWasFinished();
 		if (routeWasFinished && !DestinationReachedMenu.wasShown()) {
@@ -904,6 +804,11 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			System.err.println("OnCreate for MapActivity took " + (System.currentTimeMillis() - tm) + " ms");
 		}
 
+		boolean showOsmAndWelcomeScreen = true;
+		final Intent intent = getIntent();
+		if (intent != null && intent.hasExtra(FirstUsageWelcomeFragment.SHOW_OSMAND_WELCOME_SCREEN)) {
+			showOsmAndWelcomeScreen = intent.getBooleanExtra(FirstUsageWelcomeFragment.SHOW_OSMAND_WELCOME_SCREEN, true);
+		}
 		boolean showWelcomeScreen = ((app.getAppInitializer().isFirstTime() && Version.isDeveloperVersion(app)) || !app.getResourceManager().isAnyMapInstalled())
 				&& FirstUsageWelcomeFragment.SHOW && settings.SHOW_OSMAND_WELCOME_SCREEN.get() && showOsmAndWelcomeScreen;
 
@@ -915,7 +820,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 						DataStoragePlaceDialogFragment.showInstance(getSupportFragmentManager(), true);
 					} else {
 						ActivityCompat.requestPermissions(this,
-								new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+								new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE},
 								DownloadActivity.PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
 					}
 				}
@@ -937,8 +842,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			getSupportFragmentManager().beginTransaction()
 					.add(R.id.fragmentContainer, new FirstUsageWelcomeFragment(),
 							FirstUsageWelcomeFragment.TAG).commitAllowingStateLoss();
-		} else if (!isFirstScreenShowing() && OsmLiveCancelledDialog.shouldShowDialog(app)) {
-			OsmLiveCancelledDialog.showInstance(getSupportFragmentManager());
 		} else if (SendAnalyticsBottomSheetDialogFragment.shouldShowDialog(app)) {
 			SendAnalyticsBottomSheetDialogFragment.showInstance(app, getSupportFragmentManager(), null);
 		}
@@ -976,6 +879,14 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		}
 
 		settings.MAP_SCREEN_ORIENTATION.addListener(mapScreenOrientationSettingListener);
+		settings.USE_SYSTEM_SCREEN_TIMEOUT.addListener(useSystemScreenTimeoutListener);
+	}
+
+	@Override
+	public void onTopResumedActivityChanged(boolean isTopResumedActivity) {
+		if (isTopResumedActivity) {
+			OsmandPlugin.onMapActivityResumeOnTop(this);
+		}
 	}
 
 	public void applyScreenOrientation() {
@@ -989,11 +900,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		if (mainView != null) {
 			mainView.setKeepScreenOn(keepScreenOn);
 		}
-	}
-
-	private void clearIntent(Intent intent) {
-		intent.setAction(null);
-		intent.setData(null);
 	}
 
 	public void updateStatusBarColor() {
@@ -1060,7 +966,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	private BaseSettingsFragment getVisibleBaseSettingsFragment(int... ids) {
 		for (int id : ids) {
 			Fragment fragment = getSupportFragmentManager().findFragmentById(id);
-			if (fragment != null && !fragment.isRemoving() && fragment.isVisible() && fragment instanceof BaseSettingsFragment
+			if (fragment != null && !fragment.isRemoving() && fragment instanceof BaseSettingsFragment
 					&& ((BaseSettingsFragment) fragment).getStatusBarColorId() != -1) {
 				return (BaseSettingsFragment) fragment;
 			}
@@ -1077,6 +983,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		dismissSecondSplashScreen();
 		new XMasDialogFragment().show(getSupportFragmentManager(), XMasDialogFragment.TAG);
 	}
+
 
 	private void dismissSecondSplashScreen() {
 		if (SecondSplashScreenFragment.VISIBLE) {
@@ -1105,10 +1012,9 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	}
 
 	public void dismissCardDialog() {
-		try {
-			getSupportFragmentManager().popBackStack(ContextMenuCardDialogFragment.TAG, FragmentManager.POP_BACK_STACK_INCLUSIVE);
-		} catch (Exception e) {
-			e.printStackTrace();
+		FragmentManager fragmentManager = getSupportFragmentManager();
+		if (!fragmentManager.isStateSaved()) {
+			fragmentManager.popBackStack(ContextMenuCardDialogFragment.TAG, FragmentManager.POP_BACK_STACK_INCLUSIVE);
 		}
 	}
 
@@ -1124,6 +1030,24 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 	public boolean isActivityDestroyed() {
 		return mIsDestroyed;
+	}
+
+	public boolean isMapVisible() {
+		if (isFragmentVisible()) {
+			return false;
+		}
+		return AndroidUtils.isActivityNotDestroyed(this) && settings.MAP_ACTIVITY_ENABLED.get()
+				&& !dashboardOnMap.isVisible();
+	}
+
+	public boolean isFragmentVisible() {
+		for (Fragment fragment : getSupportFragmentManager().getFragments()) {
+			if (!(fragment instanceof DashBaseFragment) && fragment.isVisible()
+					|| dashboardOnMap.isVisible()) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private void restartApp() {
@@ -1189,32 +1113,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		}
 	}
 
-	private void parseNavigationIntent(final Uri data) {
-		final String schemeSpecificPart = data.getSchemeSpecificPart();
-
-		final Matcher matcher = Pattern.compile("(?:q|ll)=([\\-0-9.]+),([\\-0-9.]+)(?:.*)").matcher(
-				schemeSpecificPart);
-		if (matcher.matches()) {
-			try {
-				final double lat = Double.valueOf(matcher.group(1));
-				final double lon = Double.valueOf(matcher.group(2));
-
-				getMyApplication().getTargetPointsHelper().navigateToPoint(new LatLon(lat, lon), false,
-						-1);
-				getMapActions().enterRoutePlanningModeGivenGpx(null, null, null, false, true);
-			} catch (NumberFormatException e) {
-				Toast.makeText(this,
-						getString(R.string.navigation_intent_invalid, schemeSpecificPart),
-						Toast.LENGTH_LONG).show(); //$NON-NLS-1$
-			}
-		} else {
-			Toast.makeText(this,
-					getString(R.string.navigation_intent_invalid, schemeSpecificPart),
-					Toast.LENGTH_LONG).show(); //$NON-NLS-1$
-		}
-		clearIntent(getIntent());
-	}
-
 	public void readLocationToShow() {
 		showMapControls();
 
@@ -1225,6 +1123,9 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		boolean editToShow = settings.getAndClearEditObjectToShow();
 		int status = settings.isRouteToPointNavigateAndClear();
 		String searchRequestToShow = settings.getAndClearSearchRequestToShow();
+		if (status != 0 || searchRequestToShow != null || latLonToShow != null) {
+			dismissSettingsScreens();
+		}
 		if (status != 0) {
 			// always enable and follow and let calculate it (i.e.GPS is not accessible in a garage)
 			Location loc = new Location("map");
@@ -1274,6 +1175,17 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 					mapContextMenu.showMinimized(latLonToShow, mapLabelToShow, toShow);
 					mapRouteInfoMenu.updateMenu();
 					MapRouteInfoMenu.showLocationOnMap(this, latLonToShow.getLatitude(), latLonToShow.getLongitude());
+				} else if (toShow instanceof GPXFile) {
+					hideContextAndRouteInfoMenues();
+
+					Bundle args = new Bundle();
+					args.putString(TRACK_FILE_NAME, ((GPXFile) toShow).path);
+					args.putBoolean(CURRENT_RECORDING, ((GPXFile) toShow).showCurrentTrack);
+					args.putInt(ContextMenuFragment.MENU_STATE_KEY, MenuController.MenuState.HALF_SCREEN);
+
+					TrackAppearanceFragment fragment = new TrackAppearanceFragment();
+					fragment.setArguments(args);
+					TrackAppearanceFragment.showInstance(this, fragment);
 				} else if (toShow instanceof QuadRect) {
 					QuadRect qr = (QuadRect) toShow;
 					mapView.fitRectToMap(qr.left, qr.right, qr.top, qr.bottom, (int) qr.width(), (int) qr.height(), 0);
@@ -1282,12 +1194,14 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 					QuadRect qr = newGpxPoint.getRect();
 					mapView.fitRectToMap(qr.left, qr.right, qr.top, qr.bottom, (int) qr.width(), (int) qr.height(), 0);
 					getMapLayers().getContextMenuLayer().enterAddGpxPointMode(newGpxPoint);
-				} else if (toShow instanceof NewGpxData) {
-					NewGpxData newGpxData = (NewGpxData) toShow;
-					QuadRect qr = newGpxData.getRect();
+				} else if (toShow instanceof GpxData) {
+					hideContextAndRouteInfoMenues();
+
+					GpxData gpxData = (GpxData) toShow;
+					QuadRect qr = gpxData.getRect();
 					mapView.fitRectToMap(qr.left, qr.right, qr.top, qr.bottom, (int) qr.width(), (int) qr.height(), 0);
 					MeasurementEditingContext editingContext = new MeasurementEditingContext();
-					editingContext.setNewGpxData(newGpxData);
+					editingContext.setGpxData(gpxData);
 					MeasurementToolFragment.showInstance(getSupportFragmentManager(), editingContext);
 				} else {
 					mapContextMenu.show(latLonToShow, mapLabelToShow, toShow);
@@ -1387,25 +1301,19 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		super.onStart();
 		stopped = false;
 		lockHelper.onStart(this);
+		mapScrollHelper.setListener(this);
 		getMyApplication().getNotificationHelper().showNotifications();
-	}
-
-	protected void setProgressDlg(Dialog progressDlg) {
-		this.progressDlg = progressDlg;
-	}
-
-	protected Dialog getProgressDlg() {
-		return progressDlg;
 	}
 
 	@Override
 	protected void onStop() {
 		getMyApplication().getNotificationHelper().removeNotifications(true);
-		if(pendingPause) {
+		if (pendingPause) {
 			onPauseActivity();
 		}
 		stopped = true;
 		lockHelper.onStop(this);
+		mapScrollHelper.setListener(null);
 		super.onStop();
 	}
 
@@ -1463,6 +1371,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 	private void onPauseActivity() {
 		settings.MAP_SCREEN_ORIENTATION.removeListener(mapScreenOrientationSettingListener);
+		settings.USE_SYSTEM_SCREEN_TIMEOUT.removeListener(useSystemScreenTimeoutListener);
 		if (!app.getRoutingHelper().isRouteWasFinished()) {
 			DestinationReachedMenu.resetShownState();
 		}
@@ -1475,7 +1384,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		app.getMapMarkersHelper().removeListener(this);
 		app.getRoutingHelper().removeListener(this);
 		app.getDownloadThread().resetUiActivity(this);
-		app.getSettingsHelper().resetActivity(this);
 		if (atlasMapRendererView != null) {
 			atlasMapRendererView.handleOnPause();
 		}
@@ -1491,6 +1399,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		}
 
 		settings.setLastKnownMapZoom(mapView.getZoom());
+		settings.setLastKnownMapElevation(mapView.getElevationAngle());
 		settings.MAP_ACTIVITY_ENABLED.set(false);
 		app.getResourceManager().interruptRendering();
 		OsmandPlugin.onMapActivityPause(this);
@@ -1499,6 +1408,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	public void updateApplicationModeSettings() {
 		changeKeyguardFlags();
 		updateMapSettings();
+		app.getPoiFilters().loadSelectedPoiFilters();
 		mapViewTrackingUtilities.updateSettings();
 		//app.getRoutingHelper().setAppMode(settings.getApplicationMode());
 		if (mapLayers.getMapInfoLayer() != null) {
@@ -1514,6 +1424,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 		mapLayers.updateLayers(mapView);
 		mapActions.updateDrawerMenu();
+		updateNavigationBarColor();
 		mapView.setComplexZoom(mapView.getZoom(), mapView.getSettingsMapDensity());
 		app.getDaynightHelper().startSensorIfNeeded(new StateChangedListener<Boolean>() {
 
@@ -1524,6 +1435,17 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		});
 		getMapView().refreshMap(true);
 		applyScreenOrientation();
+		app.getAppCustomization().updateMapMargins(this);
+	}
+
+	public void updateNavigationBarColor() {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			if (getMyApplication().getDaynightHelper().isNightModeForMapControls() || getMyApplication().getDaynightHelper().isNightMode()) {
+				getWindow().setNavigationBarColor(ContextCompat.getColor(app, R.color.navigation_bar_bg_dark));
+			} else {
+				getWindow().setNavigationBarColor(ContextCompat.getColor(app, R.color.navigation_bar_bg_light));
+			}
+		}
 	}
 
 	public void updateMapSettings() {
@@ -1556,100 +1478,39 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			}
 
 			protected void onPostExecute(Void result) {
+				DashboardOnMap dashboard = getDashboard();
+				if (dashboard != null) {
+					dashboard.onMapSettingsUpdated();
+				}
 			}
 		}.executeOnExecutor(singleThreadExecutor, (Void) null);
 
 	}
 
+	public ScrollHelper getMapScrollHelper() {
+		return mapScrollHelper;
+	}
+
 	@Override
 	public boolean onKeyDown(int keyCode, KeyEvent event) {
-		if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER && app.accessibilityEnabled()) {
-			if (!uiHandler.hasMessages(LONG_KEYPRESS_MSG_ID)) {
-				Message msg = Message.obtain(uiHandler, new Runnable() {
-					@Override
-					public void run() {
-						app.getLocationProvider().emitNavigationHint();
-					}
-				});
-				msg.what = LONG_KEYPRESS_MSG_ID;
-				uiHandler.sendMessageDelayed(msg, LONG_KEYPRESS_DELAY);
+		if (mapActivityKeyListener != null) {
+			if (mapActivityKeyListener.onKeyDown(keyCode, event)) {
+				return true;
 			}
-			return true;
 		}
 		return super.onKeyDown(keyCode, event);
 	}
 
 	@Override
 	public boolean onKeyUp(int keyCode, KeyEvent event) {
-		final int scrollingUnit = 15;
-		if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
-			if (!app.accessibilityEnabled()) {
-				mapActions.contextMenuPoint(mapView.getLatitude(), mapView.getLongitude());
-			} else if (uiHandler.hasMessages(LONG_KEYPRESS_MSG_ID)) {
-				uiHandler.removeMessages(LONG_KEYPRESS_MSG_ID);
-				mapActions.contextMenuPoint(mapView.getLatitude(), mapView.getLongitude());
-			}
-			return true;
-		} else if (keyCode == KeyEvent.KEYCODE_MENU /*&& event.getRepeatCount() == 0*/) {
-			// repeat count 0 doesn't work for samsung, 1 doesn't work for lg
-			toggleDrawer();
-			return true;
-		} else if (settings.EXTERNAL_INPUT_DEVICE.get() == PARROT_EXTERNAL_DEVICE) {
-			// Parrot device has only dpad left and right
-			if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-				changeZoom(-1);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-				changeZoom(1);
+		if (mapActivityKeyListener != null) {
+			if (mapActivityKeyListener.onKeyUp(keyCode, event)) {
 				return true;
 			}
-		} else if (settings.EXTERNAL_INPUT_DEVICE.get() == WUNDERLINQ_EXTERNAL_DEVICE) {
-			// WunderLINQ device, motorcycle smart phone control
-			if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-				changeZoom(-1);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-				changeZoom(1);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
-				String callingApp = "wunderlinq://datagrid";
-				Intent intent = new Intent(Intent.ACTION_VIEW);
-				intent.setData(Uri.parse(callingApp));
-				startActivity(intent);
-				return true;
-			}
-		} else if (settings.EXTERNAL_INPUT_DEVICE.get() == GENERIC_EXTERNAL_DEVICE) {
-			if (keyCode == KeyEvent.KEYCODE_MINUS) {
-				changeZoom(-1);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_PLUS) {
-				changeZoom(1);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-				scrollMap(0, scrollingUnit);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-				scrollMap(0, -scrollingUnit);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-				scrollMap(-scrollingUnit, 0);
-				return true;
-			} else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-				scrollMap(scrollingUnit, 0);
-				return true;
-			}
-		} else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
-				|| keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-			int dx = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? scrollingUnit : (keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -scrollingUnit : 0);
-			int dy = keyCode == KeyEvent.KEYCODE_DPAD_DOWN ? scrollingUnit : (keyCode == KeyEvent.KEYCODE_DPAD_UP ? -scrollingUnit : 0);
-			scrollMap(dx, dy);
-			return true;
-		} else if (OsmandPlugin.onMapActivityKeyUp(this, keyCode)) {
-			return true;
 		}
 		return super.onKeyUp(keyCode, event);
 	}
-	
+
 	private void scrollMap(int dx, int dy) {
 		final RotatedTileBox tb = mapView.getCurrentRotatedTileBox();
 		final QuadPoint cp = tb.getCenterPixelPoint();
@@ -1696,80 +1557,6 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 	public MapViewTrackingUtilities getMapViewTrackingUtilities() {
 		return mapViewTrackingUtilities;
-	}
-
-	private boolean parseLaunchIntents() {
-		boolean applied = parseLocationIntent();
-		if (!applied) {
-			applied = parseTileSourceIntent();
-		}
-		return applied;
-	}
-
-	private boolean parseLocationIntent() {
-		Intent intent = getIntent();
-		if (intent != null && intent.getData() != null) {
-			Uri data = intent.getData();
-			if (("http".equalsIgnoreCase(data.getScheme()) || "https".equalsIgnoreCase(data.getScheme())) && data.getHost() != null && data.getHost().contains("osmand.net") &&
-					data.getPath() != null && data.getPath().startsWith("/go")) {
-				String lat = data.getQueryParameter("lat");
-				String lon = data.getQueryParameter("lon");
-				String url = data.getQueryParameter("url");
-				if (lat != null && lon != null) {
-					try {
-						double lt = Double.parseDouble(lat);
-						double ln = Double.parseDouble(lon);
-						String zoom = data.getQueryParameter("z");
-						int z = settings.getLastKnownMapZoom();
-						if (zoom != null) {
-							z = Integer.parseInt(zoom);
-						}
-						settings.setMapLocationToShow(lt, ln, z, new PointDescription(lt, ln));
-					} catch (NumberFormatException e) {
-						LOG.error("error", e);
-					}
-				} else if (url != null) {
-					url = DiscountHelper.parseUrl(app, url);
-					if (DiscountHelper.validateUrl(app, url)) {
-						DiscountHelper.openUrl(this, url);
-					}
-				}
-				setIntent(null);
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private boolean parseTileSourceIntent() {
-		Intent intent = getIntent();
-		if (intent != null && intent.getData() != null) {
-			Uri data = intent.getData();
-			if (("http".equalsIgnoreCase(data.getScheme()) || "https".equalsIgnoreCase(data.getScheme())) && data.getHost() != null && data.getHost().contains("osmand.net") &&
-					data.getPath() != null && data.getPath().startsWith("/add-tile-source")) {
-				Map<String, String> attrs = new HashMap<>();
-				for (String name : data.getQueryParameterNames()) {
-					String value = data.getQueryParameter(name);
-					if (value != null) {
-						attrs.put(name, value);
-					}
-				}
-				if (!attrs.isEmpty()) {
-					try {
-						TileSourceTemplate r = TileSourceManager.createTileSourceTemplate(attrs);
-						if (r != null && settings.installTileSource(r)) {
-							Toast.makeText(this, getString(R.string.edit_tilesource_successfully, r.getName()),
-									Toast.LENGTH_SHORT).show();
-						}
-					} catch (Exception e) {
-						LOG.error("parseAddTileSourceIntent error", e);
-					}
-				}
-				setIntent(null);
-				return true;
-			}
-		}
-		return false;
 	}
 
 	public MapActivityActions getMapActions() {
@@ -1852,6 +1639,16 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		return getWindow().getDecorView().findViewById(android.R.id.content);
 	}
 
+	public void setMargins(int leftMargin, int topMargin, int rightMargin, int bottomMargin) {
+		View layout = getLayout();
+		if (layout != null) {
+			ViewGroup.LayoutParams params = layout.getLayoutParams();
+			if (params instanceof ViewGroup.MarginLayoutParams) {
+				((ViewGroup.MarginLayoutParams) params).setMargins(leftMargin, topMargin, rightMargin, bottomMargin);
+			}
+		}
+	}
+
 	public DashboardOnMap getDashboard() {
 		return dashboardOnMap;
 	}
@@ -1904,11 +1701,13 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		if (settings.DO_NOT_USE_ANIMATIONS.get()) {
 			if (event.getAction() == MotionEvent.ACTION_DOWN) {
 				if (drawerLayout.isDrawerOpen(Gravity.START)) {
-					int width = AndroidUtils.dpToPx(this, 280);
-					if (event.getRawX() > width) {
+					int drawerWidth = AndroidUtils.dpToPx(this, 280);
+					int screenWidth = AndroidUtils.getScreenWidth(MapActivity.this);
+					boolean isLayoutRtl = AndroidUtils.isLayoutRtl(app);
+					if ((!isLayoutRtl && event.getRawX() > drawerWidth)
+							|| (isLayoutRtl && event.getRawX() <= screenWidth - drawerWidth)) {
 						closeDrawer();
 					}
-
 				}
 			}
 		}
@@ -2003,7 +1802,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			}
 
 			if (requestCode == DataStorageFragment.PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE
-					&& grantResults.length > 0 && permissions.length > 0
+					&& permissions.length > 0
 					&& Manifest.permission.WRITE_EXTERNAL_STORAGE.equals(permissions[0])) {
 				if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
 					Toast.makeText(this,
@@ -2011,12 +1810,12 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 							Toast.LENGTH_LONG).show();
 				}
 			} else if (requestCode == DownloadActivity.PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE
-					&& grantResults.length > 0 && permissions.length > 0
+					&& permissions.length > 0
 					&& Manifest.permission.WRITE_EXTERNAL_STORAGE.equals(permissions[0])) {
 				permissionAsked = true;
 				permissionGranted = grantResults[0] == PackageManager.PERMISSION_GRANTED;
 			} else if (requestCode == FirstUsageWizardFragment.FIRST_USAGE_REQUEST_WRITE_EXTERNAL_STORAGE_PERMISSION
-					&& grantResults.length > 0 && permissions.length > 0
+					&& permissions.length > 0
 					&& Manifest.permission.WRITE_EXTERNAL_STORAGE.equals(permissions[0])) {
 
 				new Timer().schedule(new TimerTask() {
@@ -2039,7 +1838,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 					}
 				}, 1);
 			} else if (requestCode == MapActivityActions.REQUEST_LOCATION_FOR_DIRECTIONS_NAVIGATION_PERMISSION
-					&& grantResults.length > 0 && permissions.length > 0
+					&& permissions.length > 0
 					&& Manifest.permission.ACCESS_FINE_LOCATION.equals(permissions[0])) {
 				if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 					LatLon latLon = getContextMenu().getLatLon();
@@ -2090,18 +1889,19 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	}
 
 	public void changeKeyguardFlags() {
-		changeKeyguardFlags(settings.TURN_SCREEN_ON_TIME_INT.get() > 0, true);
+		boolean enabled = settings.TURN_SCREEN_ON_TIME_INT.get() >= 0;
+		boolean keepScreenOn = !settings.USE_SYSTEM_SCREEN_TIMEOUT.get();
+		changeKeyguardFlags(enabled, keepScreenOn);
 	}
 
 	private void changeKeyguardFlags(boolean enable, boolean forceKeepScreenOn) {
 		if (enable) {
 			getWindow().setFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
 					WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-			setKeepScreenOn(true);
 		} else {
 			getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-			setKeepScreenOn(forceKeepScreenOn);
 		}
+		setKeepScreenOn(forceKeepScreenOn);
 	}
 
 	@Override
@@ -2111,7 +1911,7 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 
 	@Override
 	public void unlock() {
-		changeKeyguardFlags(true, false);
+		changeKeyguardFlags(true, true);
 	}
 
 	@Override
@@ -2136,11 +1936,18 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	}
 
 	public void dismissSettingsScreens() {
-		try {
-			getSupportFragmentManager().popBackStack(DRAWER_SETTINGS_ID + ".new", FragmentManager.POP_BACK_STACK_INCLUSIVE);
-		} catch (Exception e) {
-			e.printStackTrace();
+		FragmentManager fragmentManager = getSupportFragmentManager();
+		if (!fragmentManager.isStateSaved()) {
+			fragmentManager.popBackStack(DRAWER_SETTINGS_ID + ".new", FragmentManager.POP_BACK_STACK_INCLUSIVE);
 		}
+	}
+
+	@Override
+	public void onScrollEvent(boolean continuousScrolling, boolean up, boolean down, boolean left, boolean right) {
+		int scrollingUnit = continuousScrolling ? SMALL_SCROLLING_UNIT : BIG_SCROLLING_UNIT;
+		int dx = (left ? -scrollingUnit : 0) + (right ? scrollingUnit : 0);
+		int dy = (up ? -scrollingUnit : 0) + (down ? scrollingUnit : 0);
+		scrollMap(dx, dy);
 	}
 
 	private class ScreenOffReceiver extends BroadcastReceiver {
@@ -2403,19 +2210,30 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 		return getFragment(ChooseRouteFragment.TAG);
 	}
 
-	public EditProfileFragment getEditProfileFragment() {
-		return getFragment(EditProfileFragment.TAG);
+	public GpxApproximationFragment getGpxApproximationFragment() {
+		return getFragment(GpxApproximationFragment.TAG);
 	}
 
-	public ProfileAppearanceFragment getProfileAppearanceFragment() {
-		return getFragment(ProfileAppearanceFragment.TAG);
+	public LoginBottomSheetFragment getLoginBottomSheetFragment() {
+		return getFragment(LoginBottomSheetFragment.TAG);
 	}
 
-	public QuickActionListFragment getQuickActionListFragment() {
-		return  getFragment(QuickActionListFragment.TAG);
+	public SnapTrackWarningFragment getSnapTrackWarningBottomSheet() {
+		return getFragment(SnapTrackWarningFragment.TAG);
 	}
 
-	<T> T getFragment(String fragmentTag){
+	public void backToConfigureProfileFragment() {
+		FragmentManager fragmentManager = getSupportFragmentManager();
+		int backStackEntryCount = fragmentManager.getBackStackEntryCount();
+		if (backStackEntryCount > 0 && !fragmentManager.isStateSaved()) {
+			BackStackEntry entry = fragmentManager.getBackStackEntryAt(backStackEntryCount - 1);
+			if (ConfigureProfileFragment.TAG.equals(entry.getName())) {
+				fragmentManager.popBackStack();
+			}
+		}
+	}
+
+	<T> T getFragment(String fragmentTag) {
 		Fragment fragment = getSupportFragmentManager().findFragmentByTag(fragmentTag);
 		return fragment != null && !fragment.isDetached() && !fragment.isRemoving() ? (T) fragment : null;
 	}
@@ -2469,6 +2287,9 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 	@Override
 	public void onInAppPurchaseGetItems() {
 		DiscountHelper.checkAndDisplay(this);
+		if (!isFirstScreenShowing() && OsmLiveGoneDialog.shouldShowDialog(app)) {
+			OsmLiveGoneDialog.showInstance(app, getSupportFragmentManager());
+		}
 	}
 
 	public enum ShowQuickSearchMode {
@@ -2486,5 +2307,4 @@ public class MapActivity extends OsmandActionBarActivity implements DownloadEven
 			return this != NEW && this != NEW_IF_EXPIRED && this != CURRENT;
 		}
 	}
-
 }

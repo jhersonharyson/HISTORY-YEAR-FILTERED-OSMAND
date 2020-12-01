@@ -13,21 +13,6 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.annotation.ColorInt;
-import android.support.annotation.ColorRes;
-import android.support.annotation.DrawableRes;
-import android.support.annotation.IdRes;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.Fragment;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.graphics.drawable.DrawableCompat;
-import android.support.v4.widget.TextViewCompat;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.PopupMenu;
-import android.support.v7.widget.RecyclerView;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -52,19 +37,38 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.ColorInt;
+import androidx.annotation.ColorRes;
+import androidx.annotation.DrawableRes;
+import androidx.annotation.IdRes;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.appcompat.widget.PopupMenu;
+import androidx.core.content.ContextCompat;
+import androidx.core.graphics.drawable.DrawableCompat;
+import androidx.core.widget.TextViewCompat;
+import androidx.fragment.app.DialogFragment;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.snackbar.Snackbar;
+
 import net.osmand.AndroidUtils;
-import net.osmand.IndexConstants;
-import net.osmand.Location;
+import net.osmand.FileUtils;
 import net.osmand.GPXUtilities;
 import net.osmand.GPXUtilities.GPXFile;
 import net.osmand.GPXUtilities.WptPt;
+import net.osmand.IndexConstants;
+import net.osmand.Location;
 import net.osmand.plus.GpxSelectionHelper;
-import net.osmand.plus.MapMarkersHelper;
 import net.osmand.plus.OsmAndLocationProvider.OsmAndCompassListener;
 import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandPreference;
 import net.osmand.plus.R;
+import net.osmand.plus.UiUtilities;
 import net.osmand.plus.Version;
 import net.osmand.plus.activities.SavingTrackHelper;
 import net.osmand.plus.activities.TrackActivity;
@@ -165,7 +169,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 
 	private void syncGpx(GPXFile gpxFile) {
 		MapMarkersHelper helper = getMyApplication().getMapMarkersHelper();
-		MapMarkersHelper.MapMarkersGroup group = helper.getMarkersGroup(gpxFile);
+		MapMarkersGroup group = helper.getMarkersGroup(gpxFile);
 		if (group != null) {
 			helper.runSynchronization(group);
 		}
@@ -280,7 +284,8 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 		TextView optionsButton = mainView.findViewById(R.id.options_button);
 
 		if (orientationPortrait) {
-			backBtn.setImageDrawable(getColoredIcon(R.drawable.ic_arrow_back, lightTheme ? R.color.color_black : R.color.active_buttons_and_links_text_dark));
+			Drawable icBack = getColoredIcon(AndroidUtils.getNavigationIconResId(getContext()), lightTheme ? R.color.color_black : R.color.active_buttons_and_links_text_dark);
+			backBtn.setImageDrawable(icBack);
 			optionsButton.setTextColor(getResolvedColor(lightTheme ? R.color.active_color_primary_light : R.color.active_color_primary_dark));
 			TextView toolbar = (TextView) mainView.findViewById(R.id.toolbar_text);
 			toolbar.setTextColor(getResolvedColor(lightTheme ? R.color.text_color_primary_light : R.color.text_color_primary_dark));
@@ -288,7 +293,8 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 			setBackgroundColor(R.id.app_bar, lightTheme ? R.color.route_info_bg_light : R.color.route_info_bg_dark);
 			setBackgroundColor(mainView, lightTheme ? R.color.activity_background_color_light : R.color.activity_background_color_dark);
 		} else {
-			backBtn.setImageDrawable(getColoredIcon(R.drawable.ic_arrow_back, lightTheme ? R.color.active_buttons_and_links_text_light : R.color.active_buttons_and_links_text_dark));
+			Drawable icBack = getColoredIcon(AndroidUtils.getNavigationIconResId(getContext()), lightTheme ? R.color.active_buttons_and_links_text_light : R.color.active_buttons_and_links_text_dark);
+			backBtn.setImageDrawable(icBack);
 			optionsButton.setTextColor(getResolvedColor(lightTheme ? R.color.color_white : R.color.active_color_primary_dark));
 			TextView toolbar = (TextView) mainView.findViewById(R.id.toolbar_text);
 			toolbar.setTextColor(getResolvedColor(lightTheme ? R.color.color_white : R.color.text_color_primary_dark));
@@ -384,7 +390,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 				}
 				final View focusedView = getDialog().getCurrentFocus();
 				if (focusedView != null) {
-					AndroidUtils.softKeyboardDelayed(focusedView);
+					AndroidUtils.softKeyboardDelayed(getActivity(), focusedView);
 				}
 			}
 		});
@@ -595,9 +601,10 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 		@DrawableRes int itemBg = lightTheme ? R.drawable.keyboard_item_light_bg : R.drawable.keyboard_item_dark_bg;
 		@DrawableRes int controlItemBg = lightTheme ? R.drawable.keyboard_item_control_light_bg : R.drawable.keyboard_item_control_dark_bg;
 
-		ColorStateList clearItemTextColorStateList = AndroidUtils.createPressedColorStateList(getContext(),
+		Context ctx = requireContext();
+		ColorStateList clearItemTextColorStateList = AndroidUtils.createPressedColorStateList(ctx,
 				R.color.keyboard_item_divider_control_color_light, R.color.keyboard_item_divider_control_color_light_pressed);
-		ColorStateList numberColorStateList = AndroidUtils.createPressedColorStateList(getContext(),
+		ColorStateList numberColorStateList = AndroidUtils.createPressedColorStateList(ctx,
 				R.color.keyboard_item_text_color_light, R.color.keyboard_item_text_color_light_pressed);
 
 		@ColorInt int textColorDark = getResolvedColor(R.color.keyboard_item_text_color_dark);
@@ -635,17 +642,17 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 				itemTv.setText((String) item);
 				itemIv.setVisibility(View.GONE);
 				itemBottomSpace.setVisibility(View.VISIBLE);
-			} else if (item instanceof Integer) {
+			} else if (item instanceof Drawable) {
 				itemTopSpace.setVisibility(View.GONE);
 				itemTv.setVisibility(View.GONE);
 				itemIv.setVisibility(View.VISIBLE);
 				itemBottomSpace.setVisibility(View.GONE);
-				Drawable icon;
+				Drawable icon = DrawableCompat.wrap((Drawable) item);
 				if (lightTheme) {
-					icon = DrawableCompat.wrap(getResources().getDrawable((Integer) item));
 					DrawableCompat.setTintList(icon, numberColorStateList);
 				} else {
-					icon = getColoredIcon((Integer) item, R.color.keyboard_item_divider_control_color_dark);
+					int color = ContextCompat.getColor(ctx, R.color.keyboard_item_divider_control_color_dark);
+					DrawableCompat.setTint(icon, color);
 				}
 				itemIv.setImageDrawable(icon);
 			}
@@ -653,6 +660,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 	}
 
 	private Object getItemObjectById(@IdRes int id) {
+		Context ctx = requireContext();
 		if (id == R.id.keyboard_item_0) {
 			return "0";
 		} else if (id == R.id.keyboard_item_1) {
@@ -676,11 +684,15 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 		} else if (id == R.id.keyboard_item_clear) {
 			return getString(R.string.shared_string_clear);
 		} else if (id == R.id.keyboard_item_next_field) {
-			return R.drawable.ic_keyboard_next_field;
+			Drawable normal = AppCompatResources.getDrawable(ctx, R.drawable.ic_action_next_field_stroke);
+			Drawable pressed = AppCompatResources.getDrawable(ctx, R.drawable.ic_action_next_field_fill);
+			return AndroidUtils.createPressedStateListDrawable(normal, pressed);
 		} else if (id == R.id.keyboard_item_backspace) {
-			return R.drawable.ic_keyboard_backspace;
+			Drawable normal = AppCompatResources.getDrawable(ctx, R.drawable.ic_action_backspace_stroke);
+			Drawable pressed = AppCompatResources.getDrawable(ctx, R.drawable.ic_action_backspace_fill);
+			return AndroidUtils.createPressedStateListDrawable(normal, pressed);
 		} else if (id == R.id.keyboard_item_hide) {
-			return R.drawable.ic_action_keyboard_hide;
+			return AppCompatResources.getDrawable(ctx, R.drawable.ic_action_keyboard_hide);
 		}
 		return -1;
 	}
@@ -694,7 +706,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 		final View focusedView = getDialog().getCurrentFocus();
 		if (focusedView != null) {
 			if (!isOsmandKeyboardOn()) {
-				AndroidUtils.softKeyboardDelayed(focusedView);
+				AndroidUtils.softKeyboardDelayed(getActivity(), focusedView);
 			}
 		}
 	}
@@ -1010,7 +1022,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 	}
 
 	private void changeOsmandKeyboardSetting() {
-		OsmandSettings.OsmandPreference<Boolean> pref = getMyApplication().getSettings().COORDS_INPUT_USE_OSMAND_KEYBOARD;
+		OsmandPreference<Boolean> pref = getMyApplication().getSettings().COORDS_INPUT_USE_OSMAND_KEYBOARD;
 		pref.set(!pref.get());
 	}
 
@@ -1026,7 +1038,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 				new Handler().postDelayed(new Runnable() {
 					@Override
 					public void run() {
-						AndroidUtils.showSoftKeyboard(focusedView);
+						AndroidUtils.showSoftKeyboard(getActivity(), focusedView);
 					}
 				}, 200);
 			}
@@ -1092,7 +1104,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 								startActivity(intent);
 							}
 						});
-				AndroidUtils.setSnackbarTextColor(snackbar, R.color.active_color_primary_dark);
+				UiUtilities.setupSnackbar(snackbar, !lightTheme);
 				snackbar.show();
 			}
 		};
@@ -1119,7 +1131,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 								adapter.notifyDataSetChanged();
 							}
 						});
-				AndroidUtils.setSnackbarTextColor(snackbar, R.color.active_color_primary_dark);
+				UiUtilities.setupSnackbar(snackbar, !lightTheme);
 				snackbar.show();
 			}
 
@@ -1258,7 +1270,7 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 				changeOsmandKeyboardVisibility(true);
 			}
 		} else if (!softKeyboardShown && focusedView != null) {
-			AndroidUtils.softKeyboardDelayed(focusedView);
+			AndroidUtils.softKeyboardDelayed(getActivity(), focusedView);
 		}
 	}
 
@@ -1485,15 +1497,13 @@ public class CoordinateInputDialogFragment extends DialogFragment implements Osm
 		protected Void doInBackground(Void... params) {
 			if (Algorithms.isEmpty(gpx.path)) {
 				if (!Algorithms.isEmpty(fileName)) {
-					final File dir = app.getAppPath(IndexConstants.GPX_INDEX_DIR + IndexConstants.MAP_MARKERS_INDEX_DIR);
+					String dirName = IndexConstants.GPX_INDEX_DIR + IndexConstants.MAP_MARKERS_INDEX_DIR;
+					File dir = app.getAppPath(dirName);
 					if (!dir.exists()) {
 						dir.mkdirs();
 					}
-					File fout = new File(dir, fileName + ".gpx");
-					int ind = 1;
-					while (fout.exists()) {
-						fout = new File(dir, fileName + "_" + (++ind) + ".gpx");
-					}
+					String uniqueFileName = FileUtils.createUniqueFileName(app, fileName, dirName, IndexConstants.GPX_FILE_EXT);
+					File fout = new File(dir, uniqueFileName + IndexConstants.GPX_FILE_EXT);
 					GPXUtilities.writeGpxFile(fout, gpx);
 				}
 			} else {

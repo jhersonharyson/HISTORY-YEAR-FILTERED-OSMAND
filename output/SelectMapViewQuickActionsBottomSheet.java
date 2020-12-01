@@ -4,13 +4,8 @@ package net.osmand.plus.dialogs;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.support.annotation.ColorInt;
-import android.support.annotation.Nullable;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.util.Pair;
-import android.support.v4.widget.CompoundButtonCompat;
-import android.support.v4.widget.NestedScrollView;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -20,9 +15,17 @@ import android.widget.LinearLayout.LayoutParams;
 import android.widget.RadioButton;
 import android.widget.TextView;
 
+import androidx.annotation.ColorInt;
+import androidx.annotation.Nullable;
+import androidx.core.util.Pair;
+import androidx.core.widget.CompoundButtonCompat;
+import androidx.core.widget.NestedScrollView;
+import androidx.fragment.app.FragmentManager;
+
 import net.osmand.AndroidUtils;
+import net.osmand.plus.settings.backend.ApplicationMode;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.activities.MapActivity;
 import net.osmand.plus.base.MenuBottomSheetDialogFragment;
@@ -30,15 +33,10 @@ import net.osmand.plus.base.bottomsheetmenu.BaseBottomSheetItem;
 import net.osmand.plus.base.bottomsheetmenu.simpleitems.TitleItem;
 import net.osmand.plus.quickaction.CreateEditActionDialog;
 import net.osmand.plus.quickaction.QuickAction;
-import net.osmand.plus.quickaction.QuickActionFactory;
 import net.osmand.plus.quickaction.QuickActionRegistry;
 import net.osmand.plus.quickaction.SwitchableAction;
 import net.osmand.plus.quickaction.actions.MapStyleAction;
-import net.osmand.plus.quickaction.actions.MapSourceAction;
-import net.osmand.plus.quickaction.actions.MapOverlayAction;
-import net.osmand.plus.quickaction.actions.MapUnderlayAction;
-import net.osmand.plus.render.RendererRegistry;
-import net.osmand.render.RenderingRulesStorage;
+import net.osmand.plus.quickaction.actions.SwitchProfileAction;
 
 import java.util.List;
 
@@ -68,9 +66,9 @@ public class SelectMapViewQuickActionsBottomSheet extends MenuBottomSheetDialogF
 		long id = args.getLong(SwitchableAction.KEY_ID);
 		OsmandApplication app = mapActivity.getMyApplication();
 
-		QuickActionRegistry quickActionRegistry = mapActivity.getMapLayers().getQuickActionRegistry();
+		QuickActionRegistry quickActionRegistry = app.getQuickActionRegistry();
 		action = quickActionRegistry.getQuickAction(id);
-		action = QuickActionFactory.produceAction(action);
+		action = QuickActionRegistry.produceAction(action);
 		if (action == null) {
 			return;
 		}
@@ -78,22 +76,7 @@ public class SelectMapViewQuickActionsBottomSheet extends MenuBottomSheetDialogF
 		if (savedInstanceState != null) {
 			selectedItem = savedInstanceState.getString(SELECTED_ITEM_KEY);
 		} else {
-			if (action instanceof MapStyleAction) {
-				RenderingRulesStorage current = app.getRendererRegistry().getCurrentSelectedRenderer();
-				if (current != null) {
-					selectedItem = current.getName();
-				} else {
-					selectedItem = RendererRegistry.DEFAULT_RENDER;
-				}
-			} else if (action instanceof MapSourceAction) {
-				selectedItem = settings.MAP_ONLINE_DATA.get()
-						? settings.MAP_TILE_SOURCES.get()
-						: MapSourceAction.LAYER_OSM_VECTOR;
-			} else if (action instanceof MapUnderlayAction) {
-				selectedItem = settings.MAP_UNDERLAY.get();
-			} else if (action instanceof MapOverlayAction) {
-				selectedItem = settings.MAP_OVERLAY.get();
-			}
+			selectedItem  = ((SwitchableAction<?>) action).getSelectedItem(app);
 		}
 		rbColorList = AndroidUtils.createCheckedColorStateList(app, R.color.icon_color_default_light, getActiveColorId());
 
@@ -179,8 +162,24 @@ public class SelectMapViewQuickActionsBottomSheet extends MenuBottomSheetDialogF
 			List<String> stylesList = mapStyleAction.getFilteredStyles();
 			for (String entry : stylesList) {
 				boolean selected = entry.equals(selectedItem);
-				createItemRow(selected, counter, mapStyleAction.getTranslatedItemName(context, entry), entry);
+				createItemRow(selected, counter, getContentIcon(action.getIconRes()),
+						mapStyleAction.getTranslatedItemName(context, entry), entry);
 				counter++;
+			}
+		} else if (action instanceof SwitchProfileAction) {
+			SwitchProfileAction switchProfileAction = (SwitchProfileAction) action;
+			List<String> profilesKeys = (List<String>) switchProfileAction.loadListFromParams();
+			for (String key : profilesKeys) {
+				ApplicationMode appMode = ApplicationMode.valueOfStringKey(key, null);
+				if (appMode != null) {
+					boolean selected = key.equals(selectedItem);
+					int iconId = appMode.getIconRes();
+					int colorId = appMode.getIconColorInfo().getColor(nightMode);
+					Drawable icon = getIcon(iconId, colorId);
+					String translatedName = appMode.toHumanString();
+					createItemRow(selected, counter, icon, translatedName, key);
+					counter++;
+				}
 			}
 		} else if (action instanceof SwitchableAction) {
 			SwitchableAction switchableAction = (SwitchableAction) action;
@@ -188,13 +187,13 @@ public class SelectMapViewQuickActionsBottomSheet extends MenuBottomSheetDialogF
 			for (Pair<String, String> entry : sources) {
 				String tag = entry.first;
 				boolean selected = tag.equals(selectedItem);
-				createItemRow(selected, counter, entry.second, tag);
+				createItemRow(selected, counter, getContentIcon(action.getIconRes()), entry.second, tag);
 				counter++;
 			}
 		}
 	}
 
-	private void createItemRow(boolean selected, int counter, String text, String tag) {
+	private void createItemRow(boolean selected, int counter, Drawable icon, String text, String tag) {
 		View view = itemsContainer.getChildAt(counter);
 		view.setTag(tag);
 		view.setOnClickListener(getOnClickListener());
@@ -207,7 +206,7 @@ public class SelectMapViewQuickActionsBottomSheet extends MenuBottomSheetDialogF
 		rb.setChecked(selected);
 		CompoundButtonCompat.setButtonTintList(rb, rbColorList);
 		ImageView imageView = (ImageView) view.findViewById(R.id.icon);
-		imageView.setImageDrawable(getContentIcon(action.getIconRes()));
+		imageView.setImageDrawable(icon);
 	}
 
 	@ColorInt

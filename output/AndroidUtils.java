@@ -4,6 +4,7 @@ package net.osmand;
 import android.app.Activity;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -13,6 +14,7 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ClipDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
@@ -23,15 +25,6 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.StatFs;
-import android.support.annotation.AttrRes;
-import android.support.annotation.ColorInt;
-import android.support.annotation.ColorRes;
-import android.support.annotation.NonNull;
-import android.support.design.widget.Snackbar;
-import android.support.v4.content.ContextCompat;
-import android.support.v4.content.FileProvider;
-import android.support.v4.text.TextUtilsCompat;
-import android.support.v4.view.ViewCompat;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
@@ -47,18 +40,36 @@ import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.ViewTreeObserver;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.annotation.AttrRes;
+import androidx.annotation.ColorInt;
+import androidx.annotation.ColorRes;
+import androidx.annotation.DrawableRes;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
+import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
+import androidx.core.text.TextUtilsCompat;
+import androidx.core.view.ViewCompat;
 
 import net.osmand.plus.OsmandApplication;
 import net.osmand.plus.R;
-import net.osmand.plus.download.DownloadActivity;
 import net.osmand.util.Algorithms;
 
 import java.io.File;
+import java.lang.reflect.Field;
+import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -75,6 +86,9 @@ import static android.util.TypedValue.COMPLEX_UNIT_SP;
 public class AndroidUtils {
 
 	public static final String STRING_PLACEHOLDER = "%s";
+	public static final MessageFormat formatKb = new MessageFormat("{0, number,##.#}", Locale.US);
+	public static final MessageFormat formatGb = new MessageFormat("{0, number,#.##}", Locale.US);
+	public static final MessageFormat formatMb = new MessageFormat("{0, number,##.#}", Locale.US);
 	
 	/**
 	 * @param context
@@ -85,20 +99,24 @@ public class AndroidUtils {
 		return context.getResources().getConfiguration().keyboard != Configuration.KEYBOARD_NOKEYS;
 	}
 
-	public static void softKeyboardDelayed(final View view) {
+	public static void softKeyboardDelayed(final Activity activity, final View view) {
 		view.post(new Runnable() {
 			@Override
 			public void run() {
 				if (!isHardwareKeyboardAvailable(view.getContext())) {
-					showSoftKeyboard(view);
+					showSoftKeyboard(activity,view);
 				}
 			}
 		});
 	}
 
-	public static void showSoftKeyboard(final View view) {
+	public static void showSoftKeyboard(final Activity activity, final View view) {
 		InputMethodManager imm = (InputMethodManager) view.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
 		if (imm != null) {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+				KeyguardManager keyguardManager = (KeyguardManager) view.getContext().getSystemService(Context.KEYGUARD_SERVICE);
+				keyguardManager.requestDismissKeyguard(activity,null);
+			}
 			imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
 		}
 	}
@@ -136,14 +154,8 @@ public class AndroidUtils {
 				R.color.icon_color_default_light, R.color.wikivoyage_active_dark);
 	}
 
-	public static String trimExtension(String src) {
-		if (src != null) {
-			int index = src.lastIndexOf('.');
-			if (index != -1) {
-				return src.substring(0, index);
-			}
-		}
-		return src;
+	public static String addColon(OsmandApplication app, @StringRes int stringRes) {
+		return app.getString(R.string.ltr_or_rtl_combine_via_colon, app.getString(stringRes), "").trim();
 	}
 
 	public static Uri getUriForFile(Context context, File file) {
@@ -152,6 +164,17 @@ public class AndroidUtils {
 		} else {
 			return FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
 		}
+	}
+
+	public static boolean isIntentSafe(Context context, Intent intent) {
+		return intent.resolveActivity(context.getPackageManager()) != null;
+	}
+
+	public static boolean isActivityNotDestroyed(@Nullable Activity activity) {
+		if (Build.VERSION.SDK_INT >= 17) {
+			return activity != null && !activity.isFinishing() && !activity.isDestroyed();
+		}
+		return activity != null && !activity.isFinishing();
 	}
 
 	public static Spannable replaceCharsWithIcon(String text, Drawable icon, String[] chars) {
@@ -210,16 +233,26 @@ public class AndroidUtils {
 		return DateFormat.getTimeFormat(ctx).format(new Date(time));
 	}
 
-	public static String formatSize(long sizeBytes) {
+
+	public static String formatSize(Context ctx, long sizeBytes) {
 		int sizeKb = (int) ((sizeBytes + 512) >> 10);
 		if (sizeKb > 0) {
+
+			String size = "";
+			String numSuffix = "MB";
 			if (sizeKb > 1 << 20) {
-				return DownloadActivity.formatGb.format(new Object[]{(float) sizeKb / (1 << 20)});
+				size = formatGb.format(new Object[]{(float) sizeKb / (1 << 20)});
+				numSuffix = "GB";
 			} else if (sizeBytes > (100 * (1 << 10))) {
-				return DownloadActivity.formatMb.format(new Object[]{(float) sizeBytes / (1 << 20)});
+				size = formatMb.format(new Object[]{(float) sizeBytes / (1 << 20)});
 			} else {
-				return DownloadActivity.formatKb.format(new Object[]{(float) sizeBytes / (1 << 10)});
+				size = formatKb.format(new Object[]{(float) sizeBytes / (1 << 10)});
+				numSuffix = "kB";
 			}
+			if(ctx == null) {
+				return size + " " + numSuffix;
+			}
+			return ctx.getString(R.string.ltr_or_rtl_combine_via_space, size, numSuffix);
 		}
 		return "";
 	}
@@ -249,6 +282,17 @@ public class AndroidUtils {
 				lightNormal, lightChecked, darkNormal, darkChecked);
 	}
 
+	public static ColorStateList createEnabledColorStateList(Context ctx, @ColorRes int normal, @ColorRes int pressed) {
+		return createEnabledColorStateList(ctx, false, normal, pressed, 0, 0);
+	}
+
+	public static ColorStateList createEnabledColorStateList(Context ctx, boolean night,
+	                                                         @ColorRes int lightNormal, @ColorRes int lightPressed,
+	                                                         @ColorRes int darkNormal, @ColorRes int darkPressed) {
+		return createColorStateList(ctx, night, android.R.attr.state_enabled,
+				lightNormal, lightPressed, darkNormal, darkPressed);
+	}
+
 	public static ColorStateList createPressedColorStateList(Context ctx, @ColorRes int normal, @ColorRes int pressed) {
 		return createPressedColorStateList(ctx, false, normal, pressed, 0, 0);
 	}
@@ -275,12 +319,30 @@ public class AndroidUtils {
 		);
 	}
 
+	public static ColorStateList createColorStateList(Context ctx, boolean night) {
+		return new ColorStateList(
+				new int[][] {
+						new int[] {-android.R.attr.state_enabled}, // disabled
+						new int[] {android.R.attr.state_checked},
+						new int[] {}
+				},
+				new int[] {
+						ContextCompat.getColor(ctx, night? R.color.text_color_secondary_dark : R.color.text_color_secondary_light),
+						ContextCompat.getColor(ctx, night? R.color.active_color_primary_dark : R.color.active_color_primary_light),
+						ContextCompat.getColor(ctx, night? R.color.text_color_secondary_dark : R.color.text_color_secondary_light)}
+		);
+	}
+
 	public static StateListDrawable createCheckedStateListDrawable(Drawable normal, Drawable checked) {
 		return createStateListDrawable(normal, checked, android.R.attr.state_checked);
 	}
 
 	public static StateListDrawable createPressedStateListDrawable(Drawable normal, Drawable pressed) {
 		return createStateListDrawable(normal, pressed, android.R.attr.state_pressed);
+	}
+
+	public static StateListDrawable createEnabledStateListDrawable(Drawable disabled, Drawable enabled) {
+		return createStateListDrawable(disabled, enabled, android.R.attr.state_enabled);
 	}
 
 	private static StateListDrawable createStateListDrawable(Drawable normal, Drawable stateDrawable, int state) {
@@ -308,26 +370,8 @@ public class AndroidUtils {
 		return res;
 	}
 
-	public static void setSnackbarTextColor(Snackbar snackbar, @ColorRes int colorId) {
-		View view = snackbar.getView();
-		TextView tv = (TextView) view.findViewById(android.support.design.R.id.snackbar_action);
-		tv.setTextColor(ContextCompat.getColor(view.getContext(), colorId));
-	}
-
-	public static void setSnackbarTextMaxLines(Snackbar snackbar, int maxLines) {
-		View view = snackbar.getView();
-		TextView tv = (TextView) view.findViewById(android.support.design.R.id.snackbar_text);
-		tv.setMaxLines(maxLines);
-	}
-
 	public static void setBackground(Context ctx, View view, boolean night, int lightResId, int darkResId) {
-		Drawable drawable;
-		if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP) {
-			drawable = ctx.getResources().getDrawable(night ? darkResId : lightResId, ctx.getTheme());
-		} else {
-			drawable = ctx.getResources().getDrawable(night ? darkResId : lightResId);
-		}
-		setBackground(view, drawable);
+		setBackground(view, AppCompatResources.getDrawable(ctx, night ? darkResId : lightResId));
 	}
 
 	public static void setBackground(View view, Drawable drawable) {
@@ -340,20 +384,26 @@ public class AndroidUtils {
 
 	public static void setForeground(Context ctx, View view, boolean night, int lightResId, int darkResId) {
 		if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-			view.setForeground(ctx.getResources().getDrawable(night ? darkResId : lightResId,
-					ctx.getTheme()));
+			view.setForeground(AppCompatResources.getDrawable(ctx, night ? darkResId : lightResId));
 		} else if (view instanceof FrameLayout) {
-			((FrameLayout) view).setForeground(ctx.getResources().getDrawable(night ? darkResId : lightResId));
+			((FrameLayout) view).setForeground(AppCompatResources.getDrawable(ctx, night ? darkResId : lightResId));
 		}
 	}
 
-	public static void updateImageButton(Context ctx, ImageButton button, int iconLightId, int iconDarkId, int bgLightId, int bgDarkId, boolean night) {
-		button.setImageDrawable(ctx.getResources().getDrawable(night ? iconDarkId : iconLightId));
+	public static void updateImageButton(OsmandApplication ctx, ImageButton button,
+	                                     @DrawableRes int iconLightId, @DrawableRes int iconDarkId,
+	                                     @DrawableRes int bgLightId, @DrawableRes int bgDarkId, boolean night) {
 		if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP) {
-			button.setBackground(ctx.getResources().getDrawable(night ? bgDarkId : bgLightId, ctx.getTheme()));
+			button.setBackground(ctx.getUIUtilities().getIcon(night ? bgDarkId : bgLightId));
 		} else {
-			button.setBackgroundDrawable(ctx.getResources().getDrawable(night ? bgDarkId : bgLightId));
+			button.setBackgroundDrawable(ctx.getUIUtilities().getIcon(night ? bgDarkId : bgLightId));
 		}
+		int btnSizePx = button.getLayoutParams().height;
+		int iconSizePx = ctx.getResources().getDimensionPixelSize(R.dimen.map_widget_icon);
+		int iconPadding = (btnSizePx - iconSizePx) / 2;
+		button.setPadding(iconPadding, iconPadding, iconPadding, iconPadding);
+		button.setScaleType(ImageView.ScaleType.FIT_CENTER);
+		button.setImageDrawable(ctx.getUIUtilities().getMapIcon(night ? iconDarkId : iconLightId, !night));
 	}
 
 	public static void setDashButtonBackground(Context ctx, View view, boolean night) {
@@ -388,6 +438,17 @@ public class AndroidUtils {
 		textView.setHintTextColor(night ?
 				ctx.getResources().getColor(R.color.text_color_secondary_dark)
 				: ctx.getResources().getColor(R.color.text_color_secondary_light));
+	}
+
+	public static int getTextMaxWidth(float textSize, List<String> titles) {
+		int width = 0;
+		for (String title : titles) {
+			int titleWidth = getTextWidth(textSize, title);
+			if (titleWidth > width) {
+				width = titleWidth;
+			}
+		}
+		return width;
 	}
 
 	public static int getTextWidth(float textSize, String text) {
@@ -551,16 +612,37 @@ public class AndroidUtils {
 		return coordinates;
 	}
 
-	public static void enterToFullScreen(Activity activity) {
+	public static void enterToFullScreen(Activity activity, View view) {
 		if (Build.VERSION.SDK_INT >= 21) {
+			requestLayout(view);
 			activity.getWindow().getDecorView()
 					.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
 		}
 	}
 
-	public static void exitFromFullScreen(Activity activity) {
+	public static void exitFromFullScreen(Activity activity, View view) {
 		if (Build.VERSION.SDK_INT >= 21) {
+			requestLayout(view);
 			activity.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+		}
+	}
+
+	private static void requestLayout(final View view) {
+		if (view != null) {
+			ViewTreeObserver vto = view.getViewTreeObserver();
+			vto.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+
+				@Override
+				public void onGlobalLayout() {
+					ViewTreeObserver obs = view.getViewTreeObserver();
+					if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+						obs.removeOnGlobalLayoutListener(this);
+					} else {
+						obs.removeGlobalOnLayoutListener(this);
+					}
+					view.requestLayout();
+				}
+			});
 		}
 	}
 
@@ -600,6 +682,132 @@ public class AndroidUtils {
 		} else {
 			return baseString;
 		}
+	}
+
+	public static void setCompoundDrawablesWithIntrinsicBounds(@NonNull TextView tv, Drawable start, Drawable top, Drawable end, Drawable bottom){
+		if (isSupportRTL()) {
+			tv.setCompoundDrawablesRelativeWithIntrinsicBounds(start, top, end, bottom);
+		} else {
+			tv.setCompoundDrawablesWithIntrinsicBounds(start, top, end, bottom);
+		}
+	}
+
+	public static Drawable[] getCompoundDrawables(@NonNull TextView tv){
+		if (isSupportRTL()) {
+			return tv.getCompoundDrawablesRelative();
+		}
+		return tv.getCompoundDrawables();
+	}
+
+	public static void setPadding(View view, int start, int top, int end, int bottom) {
+		if (isSupportRTL()) {
+			view.setPaddingRelative(start, top, end, bottom);
+		} else {
+			view.setPadding(start, top, end, bottom);
+		}
+	}
+
+	public static void setMargins(ViewGroup.MarginLayoutParams layoutParams, int start, int top, int end, int bottom) {
+		layoutParams.setMargins(start, top, end, bottom);
+		if (isSupportRTL()) {
+			layoutParams.setMarginStart(start);
+			layoutParams.setMarginEnd(end);
+		}
+	}
+
+	public static void setTextDirection(@NonNull TextView tv, boolean rtl) {
+		if (isSupportRTL()) {
+			int textDirection = rtl ? View.TEXT_DIRECTION_RTL : View.TEXT_DIRECTION_LTR;
+			tv.setTextDirection(textDirection);
+		}
+	}
+	
+	public static int getLayoutDirection(@NonNull Context ctx) {
+		Locale currentLocale = ctx.getResources().getConfiguration().locale;
+		return TextUtilsCompat.getLayoutDirectionFromLocale(currentLocale);
+	}
+
+	public static int getNavigationIconResId(@NonNull Context ctx) {
+		return isLayoutRtl(ctx) ? R.drawable.ic_arrow_forward : R.drawable.ic_arrow_back;
+	}
+
+	public static Drawable getDrawableForDirection(@NonNull Context ctx,
+	                                               @NonNull Drawable drawable) {
+		return isLayoutRtl(ctx) ? getMirroredDrawable(ctx, drawable) : drawable;
+	}
+
+	public static Drawable getMirroredDrawable(@NonNull Context ctx,
+	                                           @NonNull Drawable drawable) {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+			drawable.setAutoMirrored(true);
+			return drawable;
+		}
+		Bitmap bitmap = drawableToBitmap(drawable);
+		return new BitmapDrawable(ctx.getResources(), flipBitmapHorizontally(bitmap));
+	}
+
+	public static Bitmap drawableToBitmap(Drawable drawable) {
+		if (drawable instanceof BitmapDrawable) {
+			BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
+			if(bitmapDrawable.getBitmap() != null) {
+				return bitmapDrawable.getBitmap();
+			}
+		}
+
+		Bitmap bitmap = null;
+		if(drawable.getIntrinsicWidth() <= 0 || drawable.getIntrinsicHeight() <= 0) {
+			bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+		} else {
+			bitmap = Bitmap.createBitmap(drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight(), Bitmap.Config.ARGB_8888);
+		}
+
+		Canvas canvas = new Canvas(bitmap);
+		drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+		drawable.draw(canvas);
+		return bitmap;
+	}
+
+	public static Bitmap flipBitmapHorizontally(Bitmap source) {
+		Matrix matrix = new Matrix();
+		matrix.preScale(-1.0f, 1.0f, source.getWidth() / 2f, source.getHeight() / 2f);
+		return Bitmap.createBitmap(source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
+	}
+
+	public static void setTextHorizontalGravity(@NonNull TextView tv, int hGravity) {
+		if (tv.getContext() != null) {
+			boolean isLayoutRtl = AndroidUtils.isLayoutRtl(tv.getContext());
+			int gravity = Gravity.LEFT;
+			if (isLayoutRtl && (hGravity == Gravity.START)
+					|| !isLayoutRtl && hGravity == Gravity.END) {
+				gravity = Gravity.RIGHT;
+			}
+			tv.setGravity(gravity);
+		}
+	}
+
+	public static boolean isSupportRTL() {
+		return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1;
+	}
+
+	public static boolean isLayoutRtl(Context ctx) {
+		return isSupportRTL() && getLayoutDirection(ctx) == ViewCompat.LAYOUT_DIRECTION_RTL;
+	}
+
+	public static ArrayList<View> getChildrenViews(ViewGroup vg) {
+		ArrayList<View> result = new ArrayList<>();
+		for (int i = 0; i < vg.getChildCount(); i++) {
+			View child = vg.getChildAt(i);
+			result.add(child);
+		}
+		return result;
+	}
+
+	public static long getAvailableSpace(@Nullable File dir) {
+		if (dir != null && dir.canRead()) {
+			StatFs fs = new StatFs(dir.getAbsolutePath());
+			return fs.getAvailableBlocksLong() * fs.getBlockSize();
+		}
+		return -1;
 	}
 
 	public static float getFreeSpaceGb(File dir) {
@@ -652,5 +860,112 @@ public class AndroidUtils {
 
 	public static boolean isRTL() {
 		return TextUtilsCompat.getLayoutDirectionFromLocale(Locale.getDefault()) == ViewCompat.LAYOUT_DIRECTION_RTL;
+	}
+	
+	public static String createNewFileName(String oldName) {
+		int firstDotIndex = oldName.indexOf('.');
+		String nameWithoutExt = oldName.substring(0, firstDotIndex);
+		String ext = oldName.substring(firstDotIndex);
+
+		StringBuilder numberSection = new StringBuilder();
+		int i = nameWithoutExt.length() - 1;
+		boolean hasNameNumberSection = false;
+		do {
+			char c = nameWithoutExt.charAt(i);
+			if (Character.isDigit(c)) {
+				numberSection.insert(0, c);
+			} else if(Character.isSpaceChar(c) && numberSection.length() > 0) {
+				hasNameNumberSection = true;
+				break;
+			} else {
+				break;
+			}
+			i--;
+		} while (i >= 0);
+		int newNumberValue = Integer.parseInt(hasNameNumberSection ? numberSection.toString() : "0") + 1;
+		
+		String newName;
+		if (newNumberValue == 1) {
+			newName = nameWithoutExt + " " + newNumberValue + ext;
+		} else {
+			newName = nameWithoutExt.substring(0, i) + " " + newNumberValue + ext;
+		}
+
+		return newName;
+	}
+
+	public static StringBuilder formatWarnings(List<String> warnings) {
+		StringBuilder builder = new StringBuilder();
+		boolean f = true;
+		for (String w : warnings) {
+			if (f) {
+				f = false;
+			} else {
+				builder.append('\n');
+			}
+			builder.append(w);
+		}
+		return builder;
+	}
+
+	public static String getRoutingStringPropertyName(Context ctx, String propertyName, String defValue) {
+		String value = getStringByProperty(ctx, "routing_attr_" + propertyName + "_name");
+		return value != null ? value : defValue;
+	}
+
+	public static String getRoutingStringPropertyDescription(Context ctx, String propertyName, String defValue) {
+		String value = getStringByProperty(ctx, "routing_attr_" + propertyName + "_description");
+		return value != null ? value : defValue;
+	}
+
+	public static String getRenderingStringPropertyName(Context ctx, String propertyName, String defValue) {
+		String value = getStringByProperty(ctx, "rendering_attr_" + propertyName + "_name");
+		return value != null ? value : defValue;
+	}
+
+	public static String getRenderingStringPropertyDescription(Context ctx, String propertyName, String defValue) {
+		String value = getStringByProperty(ctx, "rendering_attr_" + propertyName + "_description");
+		return value != null ? value : defValue;
+	}
+
+	public static String getIconStringPropertyName(Context ctx, String propertyName) {
+		String value = getStringByProperty(ctx, "icon_group_" + propertyName);
+		return value != null ? value : propertyName;
+	}
+
+	public static String getRenderingStringPropertyValue(Context ctx, String propertyValue) {
+		if (propertyValue == null) {
+			return "";
+		}
+		String propertyValueReplaced = propertyValue.replaceAll("\\s+", "_");
+		String value = getStringByProperty(ctx, "rendering_value_" + propertyValueReplaced + "_name");
+		return value != null ? value : propertyValue;
+	}
+
+	public static String getStringRouteInfoPropertyValue(Context ctx, String propertyValue) {
+		if (propertyValue == null) {
+			return "";
+		}
+		String propertyValueReplaced = propertyValue.replaceAll("\\s+", "_");
+		String value = getStringByProperty(ctx, "routeInfo_" + propertyValueReplaced + "_name");
+		return value != null ? value : propertyValue;
+	}
+
+	private static String getStringByProperty(@NonNull Context ctx, @NonNull String property) {
+		try {
+			Field field = R.string.class.getField(property);
+			return getStringForField(ctx, field);
+		} catch (Exception e) {
+			System.err.println(e.getMessage());
+		}
+		return null;
+	}
+
+	private static String getStringForField(@NonNull Context ctx, @Nullable Field field) throws IllegalAccessException {
+		if (field != null) {
+			Integer in = (Integer) field.get(null);
+			return ctx.getString(in);
+		}
+		return null;
 	}
 }

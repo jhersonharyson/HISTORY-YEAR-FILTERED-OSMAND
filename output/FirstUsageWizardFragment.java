@@ -7,13 +7,6 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.StatFs;
 import android.provider.Settings.Secure;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentActivity;
-import android.support.v7.app.AlertDialog;
-import android.support.v7.widget.AppCompatButton;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -21,6 +14,14 @@ import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.AppCompatButton;
+import androidx.core.app.ActivityCompat;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
 
 import net.osmand.AndroidNetworkUtils;
 import net.osmand.AndroidUtils;
@@ -35,7 +36,7 @@ import net.osmand.plus.AppInitializer.AppInitializeListener;
 import net.osmand.plus.OsmAndLocationProvider;
 import net.osmand.plus.OsmAndLocationProvider.OsmAndLocationListener;
 import net.osmand.plus.OsmandApplication;
-import net.osmand.plus.OsmandSettings;
+import net.osmand.plus.settings.backend.OsmandSettings;
 import net.osmand.plus.R;
 import net.osmand.plus.Version;
 import net.osmand.plus.activities.MapActivity;
@@ -56,12 +57,10 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
-import java.text.MessageFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -77,7 +76,6 @@ public class FirstUsageWizardFragment extends BaseOsmAndFragment implements OsmA
 	private View view;
 	private DownloadIndexesThread downloadThread;
 	private DownloadValidationManager validationManager;
-	private MessageFormat formatGb = new MessageFormat("{0, number,#.##} GB", Locale.US);
 
 	private static WizardType wizardType;
 	private static final WizardType DEFAULT_WIZARD_TYPE = WizardType.SEARCH_LOCATION;
@@ -739,7 +737,7 @@ public class FirstUsageWizardFragment extends BaseOsmAndFragment implements OsmA
 	private String getFreeSpace(File dir) {
 		if (dir.canRead()) {
 			StatFs fs = new StatFs(dir.getAbsolutePath());
-			return formatGb.format(new Object[]{(float) (fs.getAvailableBlocks()) * fs.getBlockSize() / (1 << 30)});
+			return AndroidUtils.formatSize(getActivity(), (long) fs.getAvailableBlocks() * fs.getBlockSize() );
 		}
 		return "";
 	}
